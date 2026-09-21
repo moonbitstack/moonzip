@@ -1,0 +1,10 @@
+// DEFLATE, RFC 1951: https://www.rfc-editor.org/rfc/rfc1951
+//
+// The reader takes all three block types, including the dynamic Huffman blocks
+// that every real compressor emits. The writer emits one fixed-Huffman block
+// with LZ77 back-references over a 32 KiB window — smaller than a dynamic block
+// for short bodies and a good deal simpler, which for a response compressor is
+// the right trade.
+import {
+  "moonbitstack/moonzip",
+}

@@ -1,0 +1,13 @@
+// gzip, RFC 1952: https://www.rfc-editor.org/rfc/rfc1952
+//
+// A header, a DEFLATE stream, a CRC-32 and a length. The modification time is
+// written as zero so the same input always gives the same bytes.
+import {
+  "moonbitstack/moonzip",
+  "moonbitstack/moonzip/deflate",
+}
+
+import {
+  "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonbase/base16",
+} for "test"

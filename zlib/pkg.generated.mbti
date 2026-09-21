@@ -1,0 +1,21 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonzip/zlib"
+
+import {
+  "moonbitstack/moonzip",
+}
+
+// Values
+pub fn adler32(BytesView) -> UInt
+
+pub fn unzlib(BytesView) -> Bytes raise @moonzip.Broken
+
+pub fn zlib(BytesView) -> Bytes
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

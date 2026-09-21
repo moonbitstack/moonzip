@@ -1,0 +1,8 @@
+// zlib, RFC 1950: https://www.rfc-editor.org/rfc/rfc1950
+//
+// Two header bytes, a DEFLATE stream and an Adler-32. This is what HTTP's
+// `Content-Encoding: deflate` was specified to mean.
+import {
+  "moonbitstack/moonzip",
+  "moonbitstack/moonzip/deflate",
+}

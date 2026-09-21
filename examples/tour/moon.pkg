@@ -1,0 +1,8 @@
+// Compressing and reading back, in all three shapes: `moon run examples/tour`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/deflate",
+  "moonbitstack/moonzip/gzip",
+  "moonbitstack/moonzip/zlib",
+}
