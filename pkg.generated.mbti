@@ -15,6 +15,7 @@ pub(all) suberror Broken {
   Distance(at~ : Int)
   Checksum(want~ : UInt, got~ : UInt)
   Length(want~ : UInt, got~ : Int)
+  TooBig(limit~ : Int)
 } derive(Eq, @debug.Debug)
 pub fn Broken::equal(Self, Self) -> Bool
 pub fn Broken::not_equal(Self, Self) -> Bool

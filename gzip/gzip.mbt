@@ -4,23 +4,43 @@
 ///|
 /// Wrap DEFLATE output in a gzip container.
 ///
-/// The modification time goes out as zero and the name is left off, so the same
-/// input always gives the same bytes. A compressor that stamped the clock would
-/// make a build unreproducible and a cache entry never match.
-pub fn gzip(data : BytesView, level? : Int = 0) -> Bytes {
-  let out : Array[Byte] = [
-    b'\x1F',
-    b'\x8B', // magic
-    b'\x08', // CM: DEFLATE, the only method there is
-    b'\x00', // FLG: no name, no comment, no extra field
-    b'\x00',
-    b'\x00',
-    b'\x00',
-    b'\x00', // MTIME: none, so the output is reproducible
-    level.to_byte(), // XFL
-    b'\xFF', // OS: unknown, which is the honest answer for a library
-  ]
-  for b in @deflate.deflate(data) {
+/// The modification time is zero and the name is absent unless asked for, so
+/// the same input gives the same bytes. A compressor that stamped the clock
+/// would make a build unreproducible and a cache entry never match — which is
+/// why Go's `gzip.Writer` also writes zero unless told otherwise. Set `mtime`
+/// when the output is a file that should carry one.
+///
+/// `level`, `window` and `chain` go straight through to the compressor.
+pub fn gzip(
+  data : BytesView,
+  level? : Int = 6,
+  window? : Int = 32768,
+  chain? : Int,
+  mtime? : UInt = 0,
+  name? : String,
+  comment? : String,
+  os? : Int = 255,
+) -> Bytes {
+  let mut flags = 0
+  if name is Some(_) {
+    flags = flags | 0x08
+  }
+  if comment is Some(_) {
+    flags = flags | 0x10
+  }
+  let out : Array[Byte] = [b'\x1F', b'\x8B', b'\x08', flags.to_byte()]
+  le32(out, mtime)
+  out.push(xfl(level).to_byte())
+  out.push((os & 0xFF).to_byte())
+  match name {
+    Some(text) => latin1(out, text)
+    None => ()
+  }
+  match comment {
+    Some(text) => latin1(out, text)
+    None => ()
+  }
+  for b in @deflate.deflate(data, level~, window~, chain?) {
     out.push(b)
   }
   le32(out, crc32(data))
@@ -29,11 +49,48 @@ pub fn gzip(data : BytesView, level? : Int = 0) -> Bytes {
 }
 
 ///|
+/// The informational compression byte: 2 when the encoder searched hardest,
+/// 4 when it barely searched, 0 otherwise (RFC 1952 §2.3.1).
+fn xfl(level : Int) -> Int {
+  if level >= 9 {
+    2
+  } else if level <= 1 {
+    4
+  } else {
+    0
+  }
+}
+
+///|
+/// A NUL-terminated header string. gzip header strings are ISO-8859-1, so
+/// anything above U+00FF cannot be written and is refused rather than mangled.
+fn latin1(out : Array[Byte], text : String) -> Unit {
+  for i in 0..<text.length() {
+    let c = text.at(i).to_int()
+    guard c <= 0xFF else {
+      abort("gzip: a header string must be ISO-8859-1, and U+\{c} is not")
+    }
+    out.push(c.to_byte())
+  }
+  out.push(b'\x00')
+}
+
+///|
 /// Read a gzip container and decompress what is in it.
 ///
 /// The trailing CRC-32 and length are checked, because a container that carries
-/// a checksum and does not look at it is not a container.
-pub fn gunzip(data : BytesView) -> Bytes raise @moonzip.Broken {
+/// a checksum and does not look at it is not a container. Each check is a
+/// parameter for the cases where a stream is known to be truncated and the part
+/// that arrived is still wanted.
+///
+/// `limit` bounds the output, for a stream that came from elsewhere.
+pub fn gunzip(
+  data : BytesView,
+  checksum? : Bool = true,
+  length? : Bool = true,
+  header_crc? : Bool = true,
+  limit? : Int,
+) -> Bytes raise @moonzip.Broken {
   if data.length() < 18 {
     raise @moonzip.Truncated(at=data.length())
   }
@@ -66,24 +123,37 @@ pub fn gunzip(data : BytesView) -> Bytes raise @moonzip.Broken {
     at = past_string(data, at)
   }
   if (flags & 0x02) != 0 {
-    // FHCRC: two bytes over the header, which nothing writes and nothing
-    // checks, so it is skipped rather than verified.
+    // FHCRC: the low sixteen bits of the CRC-32 over everything before it.
+    if at + 2 > data.length() {
+      raise @moonzip.Truncated(at~)
+    }
+    if header_crc {
+      let want = (data[at].to_uint() | (data[at + 1].to_uint() << 8)) & 0xFFFFU
+      let got = crc32(data[0:at]) & 0xFFFFU
+      if want != got {
+        raise @moonzip.Checksum(want~, got~)
+      }
+    }
     at += 2
   }
   if at + 8 > data.length() {
     raise @moonzip.Truncated(at~)
   }
   let end = data.length() - 8
-  let body = @deflate.inflate(data[at:end])
-  let want_crc = read32(data, end)
-  let got_crc = crc32(body[:])
-  if want_crc != got_crc {
-    raise @moonzip.Checksum(want=want_crc, got=got_crc)
+  let body = @deflate.inflate(data[at:end], limit?)
+  if checksum {
+    let want_crc = read32(data, end)
+    let got_crc = crc32(body[:])
+    if want_crc != got_crc {
+      raise @moonzip.Checksum(want=want_crc, got=got_crc)
+    }
   }
-  let want_len = read32(data, end + 4)
-  // The length is written modulo 2^32, so that is how it is compared.
-  if want_len != (body.length().reinterpret_as_uint() & 0xFFFFFFFF) {
-    raise @moonzip.Length(want=want_len, got=body.length())
+  if length {
+    let want_len = read32(data, end + 4)
+    // The length is written modulo 2^32, so that is how it is compared.
+    if want_len != (body.length().reinterpret_as_uint() & 0xFFFFFFFF) {
+      raise @moonzip.Length(want=want_len, got=body.length())
+    }
   }
   body
 }

@@ -8,9 +8,9 @@ import {
 // Values
 pub fn crc32(BytesView) -> UInt
 
-pub fn gunzip(BytesView) -> Bytes raise @moonzip.Broken
+pub fn gunzip(BytesView, checksum? : Bool, length? : Bool, header_crc? : Bool, limit? : Int) -> Bytes raise @moonzip.Broken
 
-pub fn gzip(BytesView, level? : Int) -> Bytes
+pub fn gzip(BytesView, level? : Int, window? : Int, chain? : Int, mtime? : UInt, name? : String, comment? : String, os? : Int) -> Bytes
 
 // Errors
 

@@ -22,6 +22,10 @@ pub(all) suberror Broken {
   Checksum(want~ : UInt, got~ : UInt)
   /// The trailing length does not match what was decompressed.
   Length(want~ : UInt, got~ : Int)
+  /// The output passed the bound the caller set. A compressed stream says
+  /// nothing about how far it expands, so a reader handling input from
+  /// elsewhere says how much it is prepared to hold.
+  TooBig(limit~ : Int)
 } derive(Eq, Debug)
 
 ///|

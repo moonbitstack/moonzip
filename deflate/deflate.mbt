@@ -4,12 +4,39 @@
 ///|
 /// Compress into one fixed-Huffman DEFLATE block.
 ///
-/// LZ77 finds back-references with a hash chain over a 32 KiB window, capped so
-/// the search stays linear in the input. The fixed code table is used rather
-/// than a dynamic one because a dynamic block must carry its own code lengths,
-/// which costs more than it saves on the short bodies a response compressor
-/// sees — and because the reader below takes either.
-pub fn deflate(data : BytesView) -> Bytes {
+/// LZ77 finds back-references with a hash chain over the window, capped so the
+/// search stays linear in the input. The fixed code table is used rather than a
+/// dynamic one because a dynamic block must carry its own code lengths, which
+/// costs more than it saves on the short bodies a response compressor sees —
+/// and because the reader below takes either.
+///
+/// `level` runs 0 to 9 and means what it means everywhere else: 0 stores the
+/// input without compressing it, 9 searches hardest, and 6 is the default zlib,
+/// Go, Python and Node all use. It sets how far back the match finder looks,
+/// with the same numbers zlib's own table uses.
+///
+/// `window` is how far a back-reference may reach — 32 KiB is the most DEFLATE
+/// allows and the only value a reader can be assumed to handle. `chain` sets the
+/// search depth directly for a caller who would rather not go through a level.
+pub fn deflate(
+  data : BytesView,
+  level? : Int = 6,
+  window? : Int = 32768,
+  chain? : Int,
+) -> Bytes {
+  guard level >= 0 && level <= 9 else {
+    abort("deflate: level \{level} is not between 0 and 9")
+  }
+  guard window >= 256 && window <= 32768 else {
+    abort("deflate: a \{window}-byte window is outside what DEFLATE allows")
+  }
+  if level == 0 {
+    return stored_blocks(data)
+  }
+  let depth = match chain {
+    Some(given) => given
+    None => chain_for(level)
+  }
   let bw = { out: [], acc: 0, held: 0, }
   bw.bits(1, 1) // BFINAL: this is the only block
   bw.bits(1, 2) // BTYPE 01: fixed Huffman codes
@@ -24,8 +51,8 @@ pub fn deflate(data : BytesView) -> Bytes {
       if i + min_match <= n {
         let cap = if n - i < max_match { n - i } else { max_match }
         let mut j = head[hash3(data, i)]
-        let mut chain = max_chain
-        while j >= 0 && chain > 0 {
+        let mut left = depth
+        while j >= 0 && left > 0 {
           let dist = i - j
           if dist > window {
             break
@@ -42,7 +69,7 @@ pub fn deflate(data : BytesView) -> Bytes {
             }
           }
           j = prev[j]
-          chain -= 1
+          left -= 1
         }
       }
       let taken = if best_len >= min_match {
@@ -74,18 +101,27 @@ pub fn deflate(data : BytesView) -> Bytes {
 /// All three block types: stored, fixed Huffman, and the dynamic Huffman blocks
 /// that carry their own code tables — which is what zlib, gzip and every browser
 /// actually emit, so a reader without them reads almost nothing.
-pub fn inflate(data : BytesView) -> Bytes raise @moonzip.Broken {
+///
+/// `limit` bounds the output. A compressed stream says nothing about how much it
+/// expands to, and a small one can expand to more memory than the machine has;
+/// a reader handling input from elsewhere should say how much it is prepared to
+/// hold. Unbounded by default, which is what every library does.
+pub fn inflate(data : BytesView, limit? : Int) -> Bytes raise @moonzip.Broken {
+  let ceiling = match limit {
+    Some(n) => n
+    None => -1
+  }
   let br = { src: data, pos: 0, acc: 0, held: 0, }
   let out : Array[Byte] = []
   let mut last = false
   while !last {
     last = br.bits(1) == 1
     match br.bits(2) {
-      0 => stored(br, out)
-      1 => block(br, out, fixed_litlen, fixed_dist)
+      0 => stored(br, out, ceiling)
+      1 => block(br, out, fixed_litlen, fixed_dist, ceiling)
       2 => {
         let (litlen, dist) = tables(br)
-        block(br, out, litlen, dist)
+        block(br, out, litlen, dist, ceiling)
       }
       _ =>
         raise @moonzip.Header(
@@ -139,10 +175,47 @@ let min_match : Int = 3
 let max_match : Int = 258
 
 ///|
-let window : Int = 32768
+/// How deep the match finder looks at each level, using the numbers from zlib's
+/// own `deflate_config` table so that a level here means what it means there.
+fn chain_for(level : Int) -> Int {
+  match level {
+    1 => 4
+    2 => 8
+    3 => 32
+    4 => 16
+    5 => 32
+    6 => 128
+    7 => 256
+    8 => 1024
+    _ => 4096
+  }
+}
 
 ///|
-let max_chain : Int = 256
+/// Level 0: the input verbatim in stored blocks (RFC 1951 §3.2.4). A stored
+/// block carries at most 65535 bytes, so a longer input takes several.
+fn stored_blocks(data : BytesView) -> Bytes {
+  let out : Array[Byte] = []
+  let n = data.length()
+  let mut at = 0
+  let mut first = true
+  while at < n || first {
+    let len = if n - at > 65535 { 65535 } else { n - at }
+    first = false
+    let last = at + len >= n
+    out.push(if last { b'\x01' } else { b'\x00' })
+    out.push((len & 0xFF).to_byte())
+    out.push(((len >> 8) & 0xFF).to_byte())
+    let nlen = len ^ 0xFFFF
+    out.push((nlen & 0xFF).to_byte())
+    out.push(((nlen >> 8) & 0xFF).to_byte())
+    for i in 0..<len {
+      out.push(data[at + i])
+    }
+    at += len
+  }
+  Bytes::from_array(out)
+}
 
 ///|
 /// The length symbol for a match length, with its extra bits and their value.
@@ -352,7 +425,11 @@ let fixed_dist : Huffman = Huffman::of(FixedArray::make(30, 5), 30)
 ///|
 /// A stored block: the bit stream aligns to a byte, then a length, its
 /// complement, and that many bytes verbatim (§3.2.4).
-fn stored(br : Reader, out : Array[Byte]) -> Unit raise @moonzip.Broken {
+fn stored(
+  br : Reader,
+  out : Array[Byte],
+  ceiling : Int,
+) -> Unit raise @moonzip.Broken {
   br.acc = 0
   br.held = 0
   if br.pos + 4 > br.src.length() {
@@ -369,6 +446,9 @@ fn stored(br : Reader, out : Array[Byte]) -> Unit raise @moonzip.Broken {
   br.pos += 4
   if br.pos + len > br.src.length() {
     raise @moonzip.Truncated(at=br.pos)
+  }
+  if ceiling >= 0 && out.length() + len > ceiling {
+    raise @moonzip.TooBig(limit=ceiling)
   }
   for _ in 0..<len {
     out.push(br.src[br.pos])
@@ -432,9 +512,13 @@ fn block(
   out : Array[Byte],
   litlen : Huffman,
   dist : Huffman,
+  ceiling : Int,
 ) -> Unit raise @moonzip.Broken {
   let mut open = true
   while open {
+    if ceiling >= 0 && out.length() > ceiling {
+      raise @moonzip.TooBig(limit=ceiling)
+    }
     let sym = litlen.read(br)
     if sym < 256 {
       out.push(sym.to_byte())

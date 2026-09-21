@@ -7,13 +7,23 @@
 /// This, not raw DEFLATE, is what HTTP's `Content-Encoding: deflate` was
 /// specified to mean — a detail that half the servers on the web got wrong,
 /// which is why `gzip` won.
-pub fn zlib(data : BytesView) -> Bytes {
-  // CMF: DEFLATE with a 32 KiB window. FLG: no preset dictionary, and the two
-  // check bits chosen so the pair is a multiple of 31 (RFC 1950 §2.2).
-  let cmf = 0x78
-  let flg = 31 - cmf * 256 % 31
+/// `level`, `window` and `chain` go straight through to the compressor; the
+/// header says which window was used, so a reader knows how much history it
+/// must keep.
+pub fn zlib(
+  data : BytesView,
+  level? : Int = 6,
+  window? : Int = 32768,
+  chain? : Int,
+) -> Bytes {
+  // CMF: DEFLATE, and how big the window is, as log2 minus eight. FLG: the
+  // compression level for information, no preset dictionary, and five check
+  // bits chosen so the pair is a multiple of 31 (RFC 1950 §2.2).
+  let cmf = 0x08 | ((window_bits(window) - 8) << 4)
+  let rough = (flevel(level) << 6) | 0
+  let flg = rough + (31 - (cmf * 256 + rough) % 31) % 31
   let out : Array[Byte] = [cmf.to_byte(), flg.to_byte()]
-  for b in @deflate.deflate(data) {
+  for b in @deflate.deflate(data, level~, window~, chain?) {
     out.push(b)
   }
   let sum = adler32(data)
@@ -25,7 +35,14 @@ pub fn zlib(data : BytesView) -> Bytes {
 
 ///|
 /// Read a zlib container and decompress what is in it.
-pub fn unzlib(data : BytesView) -> Bytes raise @moonzip.Broken {
+///
+/// `checksum` is what makes it a container rather than a wrapper; `limit`
+/// bounds the output, for a stream that came from elsewhere.
+pub fn unzlib(
+  data : BytesView,
+  checksum? : Bool = true,
+  limit? : Int,
+) -> Bytes raise @moonzip.Broken {
   if data.length() < 6 {
     raise @moonzip.Truncated(at=data.length())
   }
@@ -47,14 +64,16 @@ pub fn unzlib(data : BytesView) -> Bytes raise @moonzip.Broken {
     )
   }
   let end = data.length() - 4
-  let body = @deflate.inflate(data[2:end])
-  let mut want = 0U
-  for i in 0..<4 {
-    want = (want << 8) | data[end + i].to_uint()
-  }
-  let got = adler32(body[:])
-  if want != got {
-    raise @moonzip.Checksum(want~, got~)
+  let body = @deflate.inflate(data[2:end], limit?)
+  if checksum {
+    let mut want = 0U
+    for i in 0..<4 {
+      want = (want << 8) | data[end + i].to_uint()
+    }
+    let got = adler32(body[:])
+    if want != got {
+      raise @moonzip.Checksum(want~, got~)
+    }
   }
   body
 }
@@ -79,4 +98,36 @@ pub fn adler32(data : BytesView) -> UInt {
     b = b % 65521U
   }
   (b << 16) | a
+}
+
+///|
+/// log2 of the window, which is what the header carries.
+fn window_bits(window : Int) -> Int {
+  let mut bits = 0
+  let mut size = window
+  while size > 1 {
+    size = size >> 1
+    bits += 1
+  }
+  guard 1 << bits == window && bits >= 8 && bits <= 15 else {
+    abort(
+      "zlib: a \{window}-byte window is not a power of two between 256 and 32768",
+    )
+  }
+  bits
+}
+
+///|
+/// The two information bits the header carries about how hard the encoder
+/// worked (RFC 1950 §2.2): 0 fastest, 1 fast, 2 default, 3 maximum.
+fn flevel(level : Int) -> Int {
+  if level <= 1 {
+    0
+  } else if level < 6 {
+    1
+  } else if level == 6 {
+    2
+  } else {
+    3
+  }
 }
