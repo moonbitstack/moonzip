@@ -159,17 +159,12 @@ pub fn gunzip(
 }
 
 ///|
-/// CRC-32 as gzip and PNG use it (RFC 1952 §8): the reflected form of the
-/// IEEE 802.3 polynomial, starting and ending complemented.
+/// CRC-32, where the container that specifies it names it.
+///
+/// The implementation is `@moonzip.crc32`: `zip` writes the same checksum, and
+/// neither container should have to import the other to reach it.
 pub fn crc32(data : BytesView) -> UInt {
-  let mut crc = 0xFFFFFFFFU
-  for b in data {
-    crc = crc ^ b.to_uint()
-    for _ in 0..<8 {
-      crc = if (crc & 1U) != 0U { (crc >> 1) ^ 0xEDB88320U } else { crc >> 1 }
-    }
-  }
-  crc ^ 0xFFFFFFFFU
+  @moonzip.crc32(data)
 }
 
 ///|

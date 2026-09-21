@@ -6,6 +6,7 @@ import {
 }
 
 // Values
+pub fn crc32(BytesView) -> UInt
 
 // Errors
 pub(all) suberror Broken {

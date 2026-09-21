@@ -1,0 +1,16 @@
+// The ZIP archive format, PKWARE APPNOTE.TXT:
+// https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
+//
+// A directory of whole files: a local header and the bytes for each, then a
+// central directory naming them all, then the end record. Stored and deflated
+// entries, which is everything in use.
+import {
+  "moonbitstack/moonzip",
+  "moonbitstack/moonzip/deflate",
+  "moonbitlang/core/encoding/utf8",
+}
+
+import {
+  "moonbitstack/moonzip/zip",
+  "moonbitstack/moonbase/base16",
+} for "test"

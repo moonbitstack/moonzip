@@ -1,6 +1,6 @@
 # moonzip
 
-Compression for MoonBit: DEFLATE, and the two containers built on it.
+Compression for MoonBit: DEFLATE, the two stream containers built on it, and the ZIP archive.
 
 ```moonbit
 let small = @gzip.gzip(body[:])
@@ -20,6 +20,7 @@ Run `moon run examples/tour` for the whole surface in one go.
 | `deflate` | DEFLATE, both directions | RFC 1951 |
 | `gzip` | The gzip container, with CRC-32 | RFC 1952 |
 | `zlib` | The zlib container, with Adler-32 | RFC 1950 |
+| `zip` | The ZIP archive: read, write, list, and one member at a time | APPNOTE.TXT |
 
 ## Configuration
 
@@ -50,6 +51,46 @@ is the one the mainstream uses.
 `level=0` writes stored blocks, which is what "no compression" means everywhere.
 `level=7` is the search depth this library used before the level existed, so
 output written by 0.1.0 is still exactly reproducible — a test asserts it.
+
+## Archives
+
+`gzip` compresses one thing; `zip` holds many.
+
+```moonbit
+let archive = @zip.zip([
+  @zip.Entry::new("hello.txt", b"hello"),
+  @zip.Entry::new("dir/nested.txt", body, mtime=written_at),
+][:])
+
+@zip.names(archive[:])              // list it, without expanding anything
+@zip.entry(archive[:], "hello.txt") // one member, expanding only that one
+@zip.unzip(archive[:], limit=limit) // all of them, bounded
+```
+
+Listing does not expand: the central directory is a table at the end of the
+archive naming every member, so `names` reads that and stops. This is what
+`zipfile.namelist()` is, and the reason to have it.
+
+A member is never made bigger by being compressed — an entry that deflates to no
+less than it started as is stored instead, which is what `zip` itself does.
+
+**Interoperability is the acceptance criterion, and it is checked both ways.**
+An archive written here opens in Python's `zipfile` with `testzip()` reporting
+every CRC correct, and an archive Python writes reads back here with the right
+contents, methods and times. That check caught something a round-trip could not:
+a systematic error in the MS-DOS date arithmetic would be invisible to a test
+that writes and reads with the same code.
+
+**Not yet**: Zip64 (archives past 4 GiB or 65535 members), encryption, split
+volumes, and the data-descriptor form. They are the variants; the tracking list
+has them.
+
+**A method this package does not implement** — bzip2 is 12, LZMA is 14 — is a
+`Codec` away rather than an edit here:
+
+```moonbit
+@zip.unzip(archive[:], codecs=mine[:])
+```
 
 ## What it reads and what it writes
 
@@ -83,12 +124,19 @@ The seven inputs run from nothing to seventy kilobytes, past the 32 KiB window.
 
 ## What is not here yet
 
-Brotli, Zstandard, LZ4 and Snappy; streaming, which would let a body be
-compressed without being held; and a dynamic-Huffman writer. They are planned in
-that order; the tracking list lives with the project.
+Brotli, Zstandard, LZ4, Snappy, xz and tar; streaming, which would let a body
+be compressed without being held; and a dynamic-Huffman writer.
 
-CRC-32 and Adler-32 live with the containers that specify them. When the
-checksum package in `mooncrypt` lands they will move there and be re-exported.
+Each format is one package here rather than a repository of its own, because a
+subpackage already isolates what a caller carries: importing `moonzip/gzip` does
+not bring `zstd` with it. There is no umbrella package re-exporting them all —
+that would undo exactly what the split achieves, and `pub using` cannot carry an
+enum's constructors through anyway.
+
+CRC-32 lives at the root, because two containers specify it — `gzip` in its
+trailer, `zip` in every entry — and neither should import the other to reach it.
+Adler-32 stays with `zlib`, which is the only thing that uses it. When the
+checksum package in `mooncrypt` lands they move there and are re-exported.
 
 ## Install
 
