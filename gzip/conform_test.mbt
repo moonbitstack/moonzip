@@ -7,11 +7,6 @@ fn raw(s : String) -> Bytes {
 }
 
 ///|
-fn hex(b : Bytes) -> String {
-  @base16.encode(b[:])
-}
-
-///|
 /// The seven inputs every vector below is taken over: nothing, one byte, a long
 /// run, text with a periodic tail, incompressible noise, a short cycle, and
 /// seventy kilobytes — past the 32 KiB window, which is where a back-reference
@@ -71,7 +66,7 @@ test "zlib reads what we write" {
   for case in cases {
     let (kind, want) = case
     let source = sample(kind)
-    assert_eq(hex(@deflate.deflate(source[:])), want)
+    assert_eq(@base16.encode(@deflate.deflate(source[:])), want)
     assert_eq(@deflate.inflate(raw(want)[:]), source)
   }
 }
@@ -99,7 +94,7 @@ test "the containers, as others read them" {
   for case in gzipped {
     let (kind, want) = case
     let source = sample(kind)
-    assert_eq(hex(@gzip.gzip(source[:])), want)
+    assert_eq(@base16.encode(@gzip.gzip(source[:])), want)
     assert_eq(@gzip.gunzip(raw(want)[:]), source)
   }
   let zlibbed = [
@@ -120,7 +115,7 @@ test "the containers, as others read them" {
   for case in zlibbed {
     let (kind, want) = case
     let source = sample(kind)
-    assert_eq(hex(@zlib.zlib(source[:])), want)
+    assert_eq(@base16.encode(@zlib.zlib(source[:])), want)
     assert_eq(@zlib.unzlib(raw(want)[:]), source)
   }
 }
@@ -299,8 +294,8 @@ test "the level reaches the compressor" {
 /// level 7 uses.
 test "the previous default is still reachable" {
   let want = "2bc94855282ccd4cce56482aca2fcf5348cbaf50c82acd2d2856c82f4b2d520049e72456552aa4e4a7eb293090a49a9124d54c24a9662649350b49aa594952cd46926a7692547390a49a9324d55c24a9e62649350f49aa794952cd47926a7e92540b90a45a9024d54224a9162649b50849aa4549522d46926a7192544b90a45a9224d55224a9962649b50c49aa6549522d47926a79925483b944ab562449b51249aa954952ad42926a559254ab91a45a9d24d51a24a9d62449b51649aab54952ad43926a5d9254eb91a45a9f24d50624a9362449b51149aa8d49526d42926a5392549b91a4da9c24d51624a9b62449b51549aaad49526d43926a5b9254db91a4da9e24d50e24a9762449b51349aa9d4952ed42926a579254bb91a4da9d24d51e24a9f62449b51749aabd4952ed43926a5f9254fb91a4da9f24d50124a90e2449751049aa8349521d4292ea5092548791a43a9c24d51124a98e2449751449aaa349521d4392ea589254c791a43a9e24d50924a94e2449751249aa9349529d4292ea549254a791a43a9d24d51924a9ce2449751649aab349529d4392ea5c9254e791a43a9f24d50524a92e2449751149aa8b49525d4292ea5292549791a4ba9c24d51524a9ae2449751549aaab49525d4392ea5a9254d791a4ba9e24d50d24a96e2449751349aa9b4952dd4292ea569254b791a4ba9d24d51d24a9ee2449751749aabb4952dd4392ea5e9254f791a4ba9f24d51348523d9124d59348523d9924d55348523d9524d5d348523d9d24d53348523d9324d5b348523d9b24d57348523d9724d5f348523d9f24d50b4852bd9024d58b4852bd9824d54b4852bd9424d5cb4852bd9c24d52b4852bd9224d5ab4852bd9a24d56b4852bd9624d5eb4852bd9e24d51b4852bd9124d59b4852bd9924d55b4852bd9524d5db4852bd9d24d53b4852bd9324d5bb4852bd9b24d57b4852bd9724d5fb4852bd9f24d50748527d9024d58748527d9824d54748527d9424d5c748527d9c24d52748527d9224d5a748527d9a24d56748527d9624d5e748527d9e24d51748527d9124d59748527d9924d55748527d9524d5d748527d9d24d53748527d9324d5b748527d9b24d57748527d9724d5f748527d9f24d50f4852fd9024d58f4852fd9824d54f4852fd9424d5cf4852fd9c24d52f4852fd9224d5af4852fd9a24d56f4852fd9624d5ef4852fd9e24d51f4852fd9124d59f4852fd9924d55f4852fd9524d5df4852fd9d24d53f4852fd9324d5bf4852cd4092ead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba34757468fae8c1e5d194d8aead195d1a32ba387d8ca6800"
-  assert_eq(hex(@deflate.deflate(sample(3)[:], level=7)), want)
-  assert_eq(hex(@deflate.deflate(sample(3)[:], chain=256)), want)
+  assert_eq(@base16.encode(@deflate.deflate(sample(3)[:], level=7)), want)
+  assert_eq(@base16.encode(@deflate.deflate(sample(3)[:], chain=256)), want)
   // And `chain` overrides the level, for someone who would rather not go
   // through one.
   assert_eq(

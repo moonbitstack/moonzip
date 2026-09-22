@@ -2,11 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 ///|
-fn hex(b : Bytes) -> String {
-  @base16.encode(b[:])
-}
-
-///|
 /// The one line that makes an archive, and the one that reads it back.
 test "an archive round-trips" {
   let entries = [
@@ -189,10 +184,10 @@ test "an archive with nothing in it" {
 test "the bytes on the wire" {
   let archive = @zip.zip([@zip.Entry::new("a", b"b", kind=Stored)][:])
   // Local header: signature, version 2.0, the UTF-8 flag, stored.
-  assert_eq(hex(archive[0:10].to_owned()), "504b0304140000080000")
+  assert_eq(@base16.encode(archive[0:10].to_owned()), "504b0304140000080000")
   // The end record's signature, and the count of entries.
   let end = archive.length() - 22
-  assert_eq(hex(archive[end:end + 4].to_owned()), "504b0506")
+  assert_eq(@base16.encode(archive[end:end + 4].to_owned()), "504b0506")
   assert_eq(archive[end + 10].to_int(), 1)
 }
 
