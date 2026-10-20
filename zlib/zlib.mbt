@@ -12,9 +12,9 @@
 /// must keep.
 pub fn zlib(
   data : BytesView,
-  level? : Int = 6,
-  window? : Int = 32768,
-  chain? : Int,
+  level~ : Int32 = 6,
+  window~ : Int32 = 32768,
+  chain? : Int32,
 ) -> Bytes {
   // CMF: DEFLATE, and how big the window is, as log2 minus eight. FLG: the
   // compression level for information, no preset dictionary, and five check
@@ -40,8 +40,8 @@ pub fn zlib(
 /// bounds the output, for a stream that came from elsewhere.
 pub fn unzlib(
   data : BytesView,
-  checksum? : Bool = true,
-  limit? : Int,
+  checksum~ : Bool = true,
+  limit? : Int32,
 ) -> Bytes raise @moonzip.Broken {
   if data.length() < 6 {
     raise @moonzip.Truncated(at=data.length())
@@ -81,7 +81,7 @@ pub fn unzlib(
 ///|
 /// Adler-32 (RFC 1950 §9): two running sums modulo the largest prime below
 /// 65536. Cheaper than a CRC and weaker, which is the trade zlib made.
-pub fn adler32(data : BytesView) -> UInt {
+pub fn adler32(data : BytesView) -> UInt32 {
   let mut a = 1U
   let mut b = 0U
   // 5552 is the most bytes that can be added before the sums could overflow
@@ -102,7 +102,7 @@ pub fn adler32(data : BytesView) -> UInt {
 
 ///|
 /// log2 of the window, which is what the header carries.
-fn window_bits(window : Int) -> Int {
+fn window_bits(window : Int32) -> Int32 {
   let mut bits = 0
   let mut size = window
   while size > 1 {
@@ -120,7 +120,7 @@ fn window_bits(window : Int) -> Int {
 ///|
 /// The two information bits the header carries about how hard the encoder
 /// worked (RFC 1950 §2.2): 0 fastest, 1 fast, 2 default, 3 maximum.
-fn flevel(level : Int) -> Int {
+fn flevel(level : Int32) -> Int32 {
   if level <= 1 {
     0
   } else if level < 6 {

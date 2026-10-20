@@ -6,11 +6,11 @@ import {
 }
 
 // Values
-pub fn crc32(BytesView) -> UInt
+pub fn crc32(BytesView) -> UInt32
 
-pub fn gunzip(BytesView, checksum? : Bool, length? : Bool, header_crc? : Bool, limit? : Int) -> Bytes raise @moonzip.Broken
+pub fn gunzip(BytesView, checksum? : Bool, length? : Bool, header_crc? : Bool, limit? : Int32) -> Bytes raise @moonzip.Broken
 
-pub fn gzip(BytesView, level? : Int, window? : Int, chain? : Int, mtime? : UInt, name? : String, comment? : String, os? : Int) -> Bytes
+pub fn gzip(BytesView, level? : Int32, window? : Int32, chain? : Int32, mtime? : UInt32, name? : String, comment? : String, os? : Int32) -> Bytes
 
 // Errors
 

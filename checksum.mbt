@@ -10,7 +10,7 @@
 /// again in the central directory — and one of them should not have to import
 /// the other to reach it. When the checksum package in `mooncrypt` lands, this
 /// moves there and is re-exported from here.
-pub fn crc32(data : BytesView) -> UInt {
+pub fn crc32(data : BytesView) -> UInt32 {
   let mut crc = 0xFFFFFFFFU
   for b in data {
     crc = crc ^ b.to_uint()

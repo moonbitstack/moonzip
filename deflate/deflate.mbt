@@ -20,9 +20,9 @@
 /// search depth directly for a caller who would rather not go through a level.
 pub fn deflate(
   data : BytesView,
-  level? : Int = 6,
-  window? : Int = 32768,
-  chain? : Int,
+  level~ : Int32 = 6,
+  window~ : Int32 = 32768,
+  chain? : Int32,
 ) -> Bytes {
   guard level >= 0 && level <= 9 else {
     abort("deflate: level \{level} is not between 0 and 9")
@@ -106,7 +106,7 @@ pub fn deflate(
 /// expands to, and a small one can expand to more memory than the machine has;
 /// a reader handling input from elsewhere should say how much it is prepared to
 /// hold. Unbounded by default, which is what every library does.
-pub fn inflate(data : BytesView, limit? : Int) -> Bytes raise @moonzip.Broken {
+pub fn inflate(data : BytesView, limit? : Int32) -> Bytes raise @moonzip.Broken {
   let ceiling = match limit {
     Some(n) => n
     None => -1
@@ -137,26 +137,26 @@ pub fn inflate(data : BytesView, limit? : Int) -> Bytes raise @moonzip.Broken {
 
 ///|
 /// The base length for each length symbol 257–285 (RFC 1951 §3.2.5).
-let length_base : FixedArray[Int] = [
+let length_base : FixedArray[Int32] = [
   3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83,
   99, 115, 131, 163, 195, 227, 258,
 ]
 
 ///|
-let length_extra : FixedArray[Int] = [
+let length_extra : FixedArray[Int32] = [
   0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5,
   5, 0,
 ]
 
 ///|
 /// The base distance for each distance symbol 0–29.
-let dist_base : FixedArray[Int] = [
+let dist_base : FixedArray[Int32] = [
   1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769,
   1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
 ]
 
 ///|
-let dist_extra : FixedArray[Int] = [
+let dist_extra : FixedArray[Int32] = [
   0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
   12, 12, 13, 13,
 ]
@@ -164,20 +164,20 @@ let dist_extra : FixedArray[Int] = [
 ///|
 /// The order the code-length code's own lengths are written in (§3.2.7), which
 /// puts the lengths most likely to be zero last so they can be left out.
-let length_order : FixedArray[Int] = [
+let length_order : FixedArray[Int32] = [
   16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
 ]
 
 ///|
-let min_match : Int = 3
+let min_match : Int32 = 3
 
 ///|
-let max_match : Int = 258
+let max_match : Int32 = 258
 
 ///|
 /// How deep the match finder looks at each level, using the numbers from zlib's
 /// own `deflate_config` table so that a level here means what it means there.
-fn chain_for(level : Int) -> Int {
+fn chain_for(level : Int32) -> Int32 {
   match level {
     1 => 4
     2 => 8
@@ -219,7 +219,7 @@ fn stored_blocks(data : BytesView) -> Bytes {
 
 ///|
 /// The length symbol for a match length, with its extra bits and their value.
-fn length_code(len : Int) -> (Int, Int, Int) {
+fn length_code(len : Int32) -> (Int32, Int32, Int32) {
   let mut i = 28
   while i > 0 && length_base[i] > len {
     i -= 1
@@ -228,7 +228,7 @@ fn length_code(len : Int) -> (Int, Int, Int) {
 }
 
 ///|
-fn distance_code(dist : Int) -> (Int, Int, Int) {
+fn distance_code(dist : Int32) -> (Int32, Int32, Int32) {
   let mut i = 29
   while i > 0 && dist_base[i] > dist {
     i -= 1
@@ -238,7 +238,7 @@ fn distance_code(dist : Int) -> (Int, Int, Int) {
 
 ///|
 /// The fixed literal/length code of §3.2.6, as a code and a width.
-fn fixed_code(sym : Int) -> (Int, Int) {
+fn fixed_code(sym : Int32) -> (Int32, Int32) {
   if sym < 144 {
     (0x30 + sym, 8)
   } else if sym < 256 {
@@ -255,14 +255,14 @@ fn fixed_code(sym : Int) -> (Int, Int) {
 ///|
 priv struct Writer {
   out : Array[Byte]
-  mut acc : Int
-  mut held : Int
+  mut acc : Int32
+  mut held : Int32
 }
 
 ///|
 /// The low `count` bits of `value`, least significant first — DEFLATE's own bit
 /// order for headers and extra bits.
-fn Writer::bits(self : Writer, value : Int, count : Int) -> Unit {
+fn Writer::bits(self : Writer, value : Int32, count : Int32) -> Unit {
   self.acc = self.acc | ((value & ((1 << count) - 1)) << self.held)
   self.held += count
   while self.held >= 8 {
@@ -275,7 +275,7 @@ fn Writer::bits(self : Writer, value : Int, count : Int) -> Unit {
 ///|
 /// A Huffman code goes out most significant bit first, against the stream's own
 /// order — so it is reversed on the way in (§3.1.1).
-fn Writer::huff(self : Writer, code : Int, len : Int) -> Unit {
+fn Writer::huff(self : Writer, code : Int32, len : Int32) -> Unit {
   let mut flipped = 0
   for i in 0..<len {
     flipped = (flipped << 1) | ((code >> i) & 1)
@@ -294,13 +294,13 @@ fn Writer::finish(self : Writer) -> Bytes {
 }
 
 ///|
-fn emit(bw : Writer, sym : Int) -> Unit {
+fn emit(bw : Writer, sym : Int32) -> Unit {
   let (code, len) = fixed_code(sym)
   bw.huff(code, len)
 }
 
 ///|
-fn emit_match(bw : Writer, len : Int, dist : Int) -> Unit {
+fn emit_match(bw : Writer, len : Int32, dist : Int32) -> Unit {
   let (lsym, lext, lval) = length_code(len)
   emit(bw, lsym)
   if lext > 0 {
@@ -316,7 +316,7 @@ fn emit_match(bw : Writer, len : Int, dist : Int) -> Unit {
 
 ///|
 /// Three bytes folded into a chain bucket.
-fn hash3(data : BytesView, i : Int) -> Int {
+fn hash3(data : BytesView, i : Int32) -> Int32 {
   (
     (data[i].to_int() << 10) ^
     (data[i + 1].to_int() << 5) ^
@@ -330,13 +330,13 @@ fn hash3(data : BytesView, i : Int) -> Int {
 ///|
 priv struct Reader {
   src : BytesView
-  mut pos : Int
-  mut acc : Int
-  mut held : Int
+  mut pos : Int32
+  mut acc : Int32
+  mut held : Int32
 }
 
 ///|
-fn Reader::bits(self : Reader, count : Int) -> Int raise @moonzip.Broken {
+fn Reader::bits(self : Reader, count : Int32) -> Int32 raise @moonzip.Broken {
   while self.held < count {
     if self.pos >= self.src.length() {
       raise @moonzip.Truncated(at=self.pos)
@@ -356,14 +356,14 @@ fn Reader::bits(self : Reader, count : Int) -> Int raise @moonzip.Broken {
 /// symbols in code order — which is all a bit-at-a-time decoder needs, and a
 /// great deal less than a table (RFC 1951 §3.2.2).
 priv struct Huffman {
-  counts : FixedArray[Int]
-  symbols : FixedArray[Int]
+  counts : FixedArray[Int32]
+  symbols : FixedArray[Int32]
 }
 
 ///|
 /// Build a code from the width assigned to each symbol. A width of zero means
 /// the symbol is not in the code.
-fn Huffman::of(lengths : FixedArray[Int], n : Int) -> Huffman {
+fn Huffman::of(lengths : FixedArray[Int32], n : Int32) -> Huffman {
   let counts = FixedArray::make(16, 0)
   for i in 0..<n {
     counts[lengths[i]] += 1
@@ -390,7 +390,7 @@ fn Huffman::of(lengths : FixedArray[Int], n : Int) -> Huffman {
 /// shortest first, so "is this code one of the ones at this width" is a
 /// subtraction — no table to build and no way for a malformed length list to
 /// index out of one.
-fn Huffman::read(self : Huffman, br : Reader) -> Int raise @moonzip.Broken {
+fn Huffman::read(self : Huffman, br : Reader) -> Int32 raise @moonzip.Broken {
   let mut code = 0
   let mut first = 0
   let mut index = 0
@@ -428,7 +428,7 @@ let fixed_dist : Huffman = Huffman::of(FixedArray::make(30, 5), 30)
 fn stored(
   br : Reader,
   out : Array[Byte],
-  ceiling : Int,
+  ceiling : Int32,
 ) -> Unit raise @moonzip.Broken {
   br.acc = 0
   br.held = 0
@@ -512,7 +512,7 @@ fn block(
   out : Array[Byte],
   litlen : Huffman,
   dist : Huffman,
-  ceiling : Int,
+  ceiling : Int32,
 ) -> Unit raise @moonzip.Broken {
   let mut open = true
   while open {

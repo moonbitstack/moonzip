@@ -6,9 +6,9 @@ import {
 }
 
 // Values
-pub fn deflate(BytesView, level? : Int, window? : Int, chain? : Int) -> Bytes
+pub fn deflate(BytesView, level? : Int32, window? : Int32, chain? : Int32) -> Bytes
 
-pub fn inflate(BytesView, limit? : Int) -> Bytes raise @moonzip.Broken
+pub fn inflate(BytesView, limit? : Int32) -> Bytes raise @moonzip.Broken
 
 // Errors
 

@@ -13,13 +13,13 @@
 /// `level`, `window` and `chain` go straight through to the compressor.
 pub fn gzip(
   data : BytesView,
-  level? : Int = 6,
-  window? : Int = 32768,
-  chain? : Int,
-  mtime? : UInt = 0,
+  level~ : Int32 = 6,
+  window~ : Int32 = 32768,
+  chain? : Int32,
+  mtime~ : UInt32 = 0,
   name? : String,
   comment? : String,
-  os? : Int = 255,
+  os~ : Int32 = 255,
 ) -> Bytes {
   let mut flags = 0
   if name is Some(_) {
@@ -51,7 +51,7 @@ pub fn gzip(
 ///|
 /// The informational compression byte: 2 when the encoder searched hardest,
 /// 4 when it barely searched, 0 otherwise (RFC 1952 §2.3.1).
-fn xfl(level : Int) -> Int {
+fn xfl(level : Int32) -> Int32 {
   if level >= 9 {
     2
   } else if level <= 1 {
@@ -86,10 +86,10 @@ fn latin1(out : Array[Byte], text : String) -> Unit {
 /// `limit` bounds the output, for a stream that came from elsewhere.
 pub fn gunzip(
   data : BytesView,
-  checksum? : Bool = true,
-  length? : Bool = true,
-  header_crc? : Bool = true,
-  limit? : Int,
+  checksum~ : Bool = true,
+  length~ : Bool = true,
+  header_crc~ : Bool = true,
+  limit? : Int32,
 ) -> Bytes raise @moonzip.Broken {
   if data.length() < 18 {
     raise @moonzip.Truncated(at=data.length())
@@ -163,19 +163,19 @@ pub fn gunzip(
 ///
 /// The implementation is `@moonzip.crc32`: `zip` writes the same checksum, and
 /// neither container should have to import the other to reach it.
-pub fn crc32(data : BytesView) -> UInt {
+pub fn crc32(data : BytesView) -> UInt32 {
   @moonzip.crc32(data)
 }
 
 ///|
-fn le32(out : Array[Byte], value : UInt) -> Unit {
+fn le32(out : Array[Byte], value : UInt32) -> Unit {
   for i in 0..<4 {
     out.push(((value >> (i * 8)) & 0xFFU).to_byte())
   }
 }
 
 ///|
-fn read32(data : BytesView, at : Int) -> UInt {
+fn read32(data : BytesView, at : Int32) -> UInt32 {
   let mut value = 0U
   for i in 0..<4 {
     value = value | (data[at + i].to_uint() << (i * 8))
@@ -185,7 +185,7 @@ fn read32(data : BytesView, at : Int) -> UInt {
 
 ///|
 /// Step past a NUL-terminated header string.
-fn past_string(data : BytesView, from : Int) -> Int raise @moonzip.Broken {
+fn past_string(data : BytesView, from : Int32) -> Int32 raise @moonzip.Broken {
   let mut at = from
   while at < data.length() && data[at] != b'\x00' {
     at += 1

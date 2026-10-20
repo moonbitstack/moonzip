@@ -20,7 +20,7 @@ pub(all) enum Kind {
   /// A method this package does not implement, by its APPNOTE.TXT number —
   /// bzip2 is 12, LZMA is 14. A [`Codec`] handles it; without one, reading such
   /// an entry is refused rather than guessed at.
-  Other(Int)
+  Other(Int32)
 } derive(Eq, Debug)
 
 ///|
@@ -31,16 +31,16 @@ pub(all) enum Kind {
 /// cost a codec, not an edit to this package.
 pub(open) trait Codec {
   /// The number APPNOTE.TXT §4.4.5 gives this method.
-  fn id(Self) -> Int
+  fn id(Self) -> Int32
   /// Compress.
   fn pack(Self, BytesView) -> Bytes
   /// Expand, honouring the caller's bound on the result.
-  fn unpack(Self, BytesView, Int?) -> Bytes raise @moonzip.Broken
+  fn unpack(Self, BytesView, Int32?) -> Bytes raise @moonzip.Broken
 }
 
 ///|
 /// The codec for a method number, if the caller supplied one.
-fn pick(codecs : ArrayView[&Codec], id : Int) -> &Codec? {
+fn pick(codecs : ArrayView[&Codec], id : Int32) -> &Codec? {
   for codec in codecs {
     if codec.id() == id {
       return Some(codec)
@@ -88,7 +88,7 @@ pub extend Entry with Debug::{to_repr}
 ///
 /// Six, which is `moonzip`'s default and zlib's, and therefore what `zip`,
 /// Python's `zipfile` and every other writer produces.
-pub let level : Int = 6
+pub let level : Int32 = 6
 
 ///|
 /// An entry with only a name and its content, deflated, stamped at the epoch.
@@ -99,16 +99,16 @@ pub let level : Int = 6
 pub fn Entry::new(
   name : String,
   data : Bytes,
-  kind? : Kind = Deflated,
-  mtime? : Int64 = 0L,
-  comment? : String = "",
+  kind~ : Kind = Deflated,
+  mtime~ : Int64 = 0L,
+  comment~ : String = "",
 ) -> Entry {
   { name, data, kind, mtime, comment, }
 }
 
 ///|
 /// The number APPNOTE.TXT §4.4.5 gives a method.
-fn number(kind : Kind) -> Int {
+fn number(kind : Kind) -> Int32 {
   match kind {
     Stored => 0
     Deflated => 8
@@ -118,7 +118,7 @@ fn number(kind : Kind) -> Int {
 
 ///|
 /// The method a number names.
-fn kind_of(id : Int) -> Kind {
+fn kind_of(id : Int32) -> Kind {
   match id {
     0 => Stored
     8 => Deflated
@@ -127,25 +127,25 @@ fn kind_of(id : Int) -> Kind {
 }
 
 ///|
-fn le16(out : Array[Byte], value : Int) -> Unit {
+fn le16(out : Array[Byte], value : Int32) -> Unit {
   out.push((value & 0xFF).to_byte())
   out.push(((value >> 8) & 0xFF).to_byte())
 }
 
 ///|
-fn le32(out : Array[Byte], value : UInt) -> Unit {
+fn le32(out : Array[Byte], value : UInt32) -> Unit {
   for i in 0..<4 {
     out.push(((value >> (i * 8)) & 0xFFU).to_byte())
   }
 }
 
 ///|
-fn read16(data : BytesView, at : Int) -> Int {
+fn read16(data : BytesView, at : Int32) -> Int32 {
   data[at].to_int() | (data[at + 1].to_int() << 8)
 }
 
 ///|
-fn read32(data : BytesView, at : Int) -> UInt {
+fn read32(data : BytesView, at : Int32) -> UInt32 {
   let mut value = 0U
   for i in 0..<4 {
     value = value | (data[at + i].to_uint() << (i * 8))
@@ -155,7 +155,7 @@ fn read32(data : BytesView, at : Int) -> UInt {
 
 ///|
 /// Days from the Unix epoch to a civil date, by Howard Hinnant's algorithm.
-fn days_from(year : Int, month : Int, day : Int) -> Int64 {
+fn days_from(year : Int32, month : Int32, day : Int32) -> Int64 {
   let y = if month <= 2 { year - 1 } else { year }
   let era = (if y >= 0 { y } else { y - 399 }) / 400
   let yoe = y - era * 400
@@ -167,7 +167,7 @@ fn days_from(year : Int, month : Int, day : Int) -> Int64 {
 
 ///|
 /// The civil date a day count names, the same algorithm run backwards.
-fn civil_from(days : Int64) -> (Int, Int, Int) {
+fn civil_from(days : Int64) -> (Int32, Int32, Int32) {
   let z = days + 719468L
   let era = (if z >= 0L { z } else { z - 146096L }) / 146097L
   let doe = (z - era * 146097L).to_int()
@@ -186,7 +186,7 @@ fn civil_from(days : Int64) -> (Int, Int, Int) {
 /// Two-second resolution, no zone, and nothing before 1980 — which is the
 /// format's own floor, so an earlier time is written as the floor rather than
 /// wrapping into a date that means something else.
-fn dos_time(unix : Int64) -> (Int, Int) {
+fn dos_time(unix : Int64) -> (Int32, Int32) {
   let days = if unix >= 0L { unix / 86400L } else { (unix - 86399L) / 86400L }
   let secs = (unix - days * 86400L).to_int()
   let (year, month, day) = civil_from(days)
@@ -200,7 +200,7 @@ fn dos_time(unix : Int64) -> (Int, Int) {
 
 ///|
 /// The other direction.
-fn unix_time(time : Int, date : Int) -> Int64 {
+fn unix_time(time : Int32, date : Int32) -> Int64 {
   let year = ((date >> 9) & 0x7F) + 1980
   let month = (date >> 5) & 0x0F
   let day = date & 0x1F
@@ -227,14 +227,14 @@ fn unix_time(time : Int, date : Int) -> Int64 {
 /// grow by being compressed.
 pub fn zip(
   entries : ArrayView[Entry],
-  level? : Int = level,
-  codecs? : ArrayView[&Codec] = [],
+  level~ : Int32 = level,
+  codecs~ : ArrayView[&Codec] = [],
 ) -> Bytes {
   let out : Array[Byte] = []
-  let offsets : Array[Int] = []
+  let offsets : Array[Int32] = []
   let stored : Array[Bytes] = []
   let kinds : Array[Kind] = []
-  let sums : Array[UInt] = []
+  let sums : Array[UInt32] = []
   for entry in entries {
     offsets.push(out.length())
     let sum = @moonzip.crc32(entry.data[:])
@@ -326,7 +326,7 @@ pub fn zip(
 /// runs backwards over the 64 KiB a comment's two-byte length can reach. A
 /// reader that only looks at the last 22 bytes fails on every archive with a
 /// comment.
-fn end_record(archive : BytesView) -> Int raise @moonzip.Broken {
+fn end_record(archive : BytesView) -> Int32 raise @moonzip.Broken {
   let least = 22
   guard archive.length() >= least else {
     raise @moonzip.Header(at=0, what="shorter than a zip end record")
@@ -351,12 +351,12 @@ fn end_record(archive : BytesView) -> Int raise @moonzip.Broken {
 /// One entry's metadata, as the central directory records it.
 priv struct Listed {
   name : String
-  how : Int
-  sum : UInt
-  packed : Int
+  how : Int32
+  sum : UInt32
+  packed : Int32
   mtime : Int64
   comment : String
-  at : Int
+  at : Int32
 }
 
 ///|
@@ -427,7 +427,7 @@ fn text(raw : BytesView) -> String {
 fn content(
   archive : BytesView,
   listed : Listed,
-  limit : Int?,
+  limit : Int32?,
   codecs : ArrayView[&Codec],
 ) -> Bytes raise @moonzip.Broken {
   let at = listed.at
@@ -482,8 +482,8 @@ pub fn names(archive : BytesView) -> Array[String] raise @moonzip.Broken {
 pub fn entry(
   archive : BytesView,
   name : String,
-  limit? : Int,
-  codecs? : ArrayView[&Codec] = [],
+  limit? : Int32,
+  codecs~ : ArrayView[&Codec] = [],
 ) -> Entry? raise @moonzip.Broken {
   for listed in directory(archive) {
     if listed.name == name {
@@ -507,8 +507,8 @@ pub fn entry(
 /// hundred members that each claim to be a gigabyte.
 pub fn unzip(
   archive : BytesView,
-  limit? : Int,
-  codecs? : ArrayView[&Codec] = [],
+  limit? : Int32,
+  codecs~ : ArrayView[&Codec] = [],
 ) -> Array[Entry] raise @moonzip.Broken {
   let out : Array[Entry] = []
   for listed in directory(archive) {

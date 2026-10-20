@@ -6,17 +6,17 @@ import {
 }
 
 // Values
-pub fn crc32(BytesView) -> UInt
+pub fn crc32(BytesView) -> UInt32
 
 // Errors
 pub(all) suberror Broken {
-  Truncated(at~ : Int)
-  Header(at~ : Int, what~ : String)
-  Code(at~ : Int)
-  Distance(at~ : Int)
-  Checksum(want~ : UInt, got~ : UInt)
-  Length(want~ : UInt, got~ : Int)
-  TooBig(limit~ : Int)
+  Truncated(at~ : Int32)
+  Header(at~ : Int32, what~ : String)
+  Code(at~ : Int32)
+  Distance(at~ : Int32)
+  Checksum(want~ : UInt32, got~ : UInt32)
+  Length(want~ : UInt32, got~ : Int32)
+  TooBig(limit~ : Int32)
 } derive(Eq, @debug.Debug)
 pub fn Broken::equal(Self, Self) -> Bool
 pub fn Broken::not_equal(Self, Self) -> Bool

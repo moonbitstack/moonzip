@@ -11,7 +11,7 @@ fn raw(s : String) -> Bytes {
 /// run, text with a periodic tail, incompressible noise, a short cycle, and
 /// seventy kilobytes — past the 32 KiB window, which is where a back-reference
 /// that reaches too far would show.
-fn sample(kind : Int) -> Bytes {
+fn sample(kind : Int32) -> Bytes {
   let out : Array[Byte] = []
   match kind {
     0 => ()
