@@ -12,8 +12,6 @@ keywords = [ "deflate", "gzip", "zlib", "compression", "inflate", "moonbit" ]
 
 description = "moonzip — compression for MoonBit: DEFLATE and gzip, one algorithm to a package."
 
-preferred_target = "wasm-gc"
-
 import {
   "moonbitstack/moonbase@0.4.0",
 }
