@@ -1,0 +1,13 @@
+// zstd, RFC 8878: https://datatracker.ietf.org/doc/html/rfc8878
+//
+// Two entropy coders over one LZ77 parse. FSE is an ANS variant: a state machine
+// whose transitions are probability-weighted, which is what lets a symbol cost a
+// fractional number of bits. Huffman does the literals; FSE does everything else.
+import {
+  "moonbitstack/moonzip",
+}
+
+import {
+  "moonbitstack/moonzip/zstd",
+  "moonbitstack/moonbase/base16",
+} for "test"

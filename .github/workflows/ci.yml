@@ -80,6 +80,9 @@ jobs:
         run: |
           moon run examples/vectors --target native > /tmp/vectors.txt
           python3 scripts/conformance.py < /tmp/vectors.txt
+          # Python has no zstd, so that half is judged by Node, whose `zlib` is
+          # the reference implementation compiled in.
+          node scripts/zstd_check.js < /tmp/vectors.txt
 
       - name: we read what others write
         run: |

@@ -1,0 +1,19 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonzip/zstd"
+
+import {
+  "moonbitstack/moonzip",
+}
+
+// Values
+pub fn unzstd(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+
+pub fn zstd(BytesView, level? : Int32) -> Bytes
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

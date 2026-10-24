@@ -279,8 +279,8 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
     <p class="eyebrow">MoonBit · compression</p>
     <h1>Write bytes.<br><em>Read them back.</em></h1>
     <p class="hero__lede">
-      Eleven formats, one per package, each with the interface its own specification
-      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA, xz, bzip2, 7z</b> — readers that
+      Twelve formats, one per package, each with the interface its own specification
+      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA, xz, bzip2, 7z, zstd</b> — readers that
       check what they read, writers that stream, and no dependency beyond
       <code>moonbase</code>.
     </p>
@@ -429,8 +429,8 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
         </tr>
         <tr>
           <td class="mono">zstd</td><td class="mono">RFC 8878</td>
-          <td><span class="pill pill--plan">planned</span></td><td><span class="pill pill--plan">planned</span></td>
-          <td>Next. FSE tables and the sequence encoding; the frame layer alone is not a decoder.</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>The full reader — FSE, Huffman literals in one or four streams, every table mode, repeat offsets — verified against libzstd. The writer uses the predefined tables and raw literals.</td>
         </tr>
         <tr>
           <td class="mono">7z</td><td class="mono">7z format</td>

@@ -16,7 +16,7 @@ Everything below follows the vocabulary the ten existing packages already use:
 - Streaming `Writer`/`Reader` where the format has a natural unit to stream — a
   chunk, a block, a frame — and not where it does not.
 
-## zstd — RFC 8878
+## zstd — done
 
 The one with the widest reach: every Linux distribution, every database, and
 `Content-Encoding: zstd` on the web. Three layers, and none of them is optional
@@ -242,5 +242,6 @@ cipher, the key derivation and the authentication are the same code.
 3. **brotli** — proves the dictionary and the context model. Nothing else here
    looks like it: a 122 KB static dictionary, ten transforms, and literal contexts
    keyed on the last two bytes.
-4. **zstd** — proves the entropy layer. FSE written once serves zstd, and the
-   Huffman half is a second opinion on `deflate/huffman.mbt`.
+4. ~~zstd~~ — done. The entropy layer: FSE in both directions, Huffman literals,
+   sequences and repeat offsets. Its judge is Node's `zlib`, which is libzstd
+   compiled in — the first referee here that is not Python.

@@ -1,6 +1,6 @@
 # moonzip
 
-Compression for MoonBit. Eleven formats, one per package, each with the interface
+Compression for MoonBit. Twelve formats, one per package, each with the interface
 its own specification argues for — and no dependency beyond `moonbase`.
 
 ```moonbit
@@ -24,13 +24,14 @@ let members = @zip.unzip(archive[:])
 | `xz` | The xz container over LZMA2 | xz file format |
 | `bzip2` | Burrows-Wheeler, move-to-front and Huffman, both directions | bzip2 |
 | `sevenz` | The 7z container: folders of coders, solid or separate | 7z format |
+| `zstd` | Frames, blocks, FSE and Huffman | RFC 8878 |
 
 Run `moon run examples/tour` for the surface in one go, `examples/stream` for the
 streaming pair, and `examples/archive` for the two containers.
 
-Two more are on the way and are named here rather than discovered later: **brotli**
-and **zstd**. Nothing in this library is a stub that returns its input; a format
-is either implemented or it is refused by name.
+One more is on the way and is named here rather than discovered later: **brotli**.
+Nothing in this library is a stub that returns its input; a format is either
+implemented or it is refused by name.
 
 ## Configuration
 
@@ -253,6 +254,42 @@ plausible mistake that produces a stream only its author can read:
 The writer emits an uncompressed directory, which is legal and which any reader
 must accept. The reader accepts both forms.
 
+## zstd
+
+Two entropy coders over one LZ77 parse. FSE is an ANS variant — a state machine
+whose transitions are probability-weighted — which is what lets a symbol cost a
+fractional number of bits; Huffman codes the literals and FSE codes everything
+else.
+
+```moonbit
+@zstd.zstd(body[:], level=3)
+@zstd.unzstd(packed[:])
+```
+
+**The reader is complete**: all three block types, literals raw, RLE or
+Huffman-coded with one or four streams, every FSE table mode (predefined,
+single-symbol, described, repeated), repeat offsets including the
+zero-literals shift, skippable frames and concatenated frames. It is verified
+against frames written by libzstd — Node's `zlib` **is** libzstd — which is the
+first format here whose judge is not Python.
+
+**The writer is real but modest**: an LZ77 parse coded with the *predefined* FSE
+tables and raw literals. That is a legal frame that libzstd reads, and it
+compresses — 184,000 bytes of English text to 3,042 — but it leaves the two
+things the reference encoder does for ratio: per-block table selection, and
+Huffman coding of the literals.
+
+Three things about this format cost time and are worth naming:
+
+- The bitstreams are read **backwards**. The last byte holds a stop bit: 0-7 zeros
+  and then a one, with the data below it.
+- An FSE decoding table seeds each symbol's next-state counter at that symbol's
+  *count*, not at where its block of states begins. Getting that wrong decodes
+  every symbol correctly and every next state wrongly — which reads as "the first
+  sequence is right and everything after it drifts".
+- The encoder must not spend bits on the last sequence's state update, because the
+  decoder does not read one; it seeds the three states from those symbols instead.
+
 ## The formats chosen for speed
 
 `lz4` and `snappy` trade ratio for decode speed, and the numbers below are what
@@ -271,6 +308,7 @@ tail, printed by `examples/stream`.
 | bzip2 | 853 | 0.5% |
 | xz | 468 | 0.3% |
 | lzma, alone | 415 | 0.2% |
+| zstd | 3,042 | 1.7% |
 | — nothing | 184,000 | 100% |
 
 The three at the bottom are the block-sorting and range-coding end of the field:

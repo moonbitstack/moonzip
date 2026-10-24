@@ -122,6 +122,7 @@ fn main raise {
   println("bzip2 block: \{@bzip2.bzip2(source[:]).length()} bytes")
   println("xz: \{@xz.xz(source[:]).length()} bytes")
   println("lzma alone: \{@lzma.lzma(source[:]).length()} bytes")
+  println("zstd: \{@zstd.zstd(source[:]).length()} bytes")
 
   // And the round trips, so the numbers are of something that works.
   if @lz4.unframe(@lz4.frame(source[:])[:]) != source {
@@ -137,6 +138,10 @@ fn main raise {
   let xzed = @xz.xz(source[:])
   if @xz.unxz(xzed[:]) != source {
     abort("xz did not round-trip")
+  }
+  let zed = @zstd.zstd(source[:])
+  if @zstd.unzstd(zed[:]) != source {
+    abort("zstd did not round-trip")
   }
   println("both fast formats round-trip")
 }

@@ -141,6 +141,15 @@ fn main {
     println("zlib \{kind} \{@base16.encode(@zlib.zlib(body[:])[:])}")
     println("lzma \{kind} \{@base16.encode(@lzma.lzma(body[:])[:])}")
     println("xz \{kind} \{@base16.encode(@xz.xz(body[:])[:])}")
+    for level in [1, 3, 9] {
+      // zstd's judge is Node's `zlib`, which is not a thing this script can
+      // call, so the checksum travels with the line and `zstd_check.js` compares
+      // it. A reader that decodes to the right bytes is the only claim worth
+      // making.
+      println(
+        "zstd \{kind} \{level} \{@moonzip.crc32(body[:])} \{@base16.encode(@zstd.zstd(body[:], level~)[:])}",
+      )
+    }
     for level in [1, 9] {
       println(
         "bzip2 \{kind} \{level} \{@base16.encode(@bzip2.bzip2(body[:], level~)[:])}",

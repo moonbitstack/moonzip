@@ -3,6 +3,7 @@
 pkgtype(kind: "executable")
 
 import {
+  "moonbitstack/moonzip",
   "moonbitstack/moonzip/deflate",
   "moonbitstack/moonzip/gzip",
   "moonbitstack/moonzip/zlib",
@@ -10,5 +11,6 @@ import {
   "moonbitstack/moonzip/lzma",
   "moonbitstack/moonzip/xz",
   "moonbitstack/moonzip/bzip2",
+  "moonbitstack/moonzip/zstd",
   "moonbitstack/moonbase/base16",
 }
