@@ -10,6 +10,7 @@ import {
   "moonbitstack/moonzip/snappy",
   "moonbitstack/moonzip/bzip2",
   "moonbitstack/moonzip/zstd",
+  "moonbitstack/moonzip/brotli",
   "moonbitstack/moonzip/xz",
   "moonbitstack/moonzip/lzma",
 }

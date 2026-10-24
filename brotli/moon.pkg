@@ -1,0 +1,12 @@
+// brotli, RFC 7932: https://datatracker.ietf.org/doc/html/rfc7932
+//
+// A static dictionary, a literal context model and canonical prefix codes. The
+// reader here is complete; the writer is a plain LZ77 encoder and says so.
+import {
+  "moonbitstack/moonzip",
+}
+
+import {
+  "moonbitstack/moonzip/brotli",
+  "moonbitstack/moonbase/base16",
+} for "test"

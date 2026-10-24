@@ -12,5 +12,6 @@ import {
   "moonbitstack/moonzip/xz",
   "moonbitstack/moonzip/bzip2",
   "moonbitstack/moonzip/zstd",
+  "moonbitstack/moonzip/brotli",
   "moonbitstack/moonbase/base16",
 }

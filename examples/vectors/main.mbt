@@ -155,6 +155,13 @@ fn main {
         "bzip2 \{kind} \{level} \{@base16.encode(@bzip2.bzip2(body[:], level~)[:])}",
       )
     }
+    for window in [16, 22] {
+      // Brotli's judge is Node's `zlib` too, for the same reason as zstd: the
+      // checksum rides along on the line and `brotli_check.js` compares it.
+      println(
+        "brotli \{kind} \{window} \{@moonzip.crc32(body[:])} \{@base16.encode(@brotli.brotli(body[:], window~)[:])}",
+      )
+    }
     for step in [1, 7, 4096, 65536] {
       println(
         "stream gzip \{kind} \{step} \{@base16.encode(stream_gzip(body, step)[:])}",
