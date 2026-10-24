@@ -299,7 +299,7 @@ fn end_record(archive : BytesView) -> End raise @moonzip.Refused {
           what="a central directory outside the archive",
         )
       }
-      return { count, start }
+      return { count, start, }
     }
     at = at - 1
   }

@@ -1,0 +1,55 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonzip/tar"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitstack/moonzip",
+}
+
+// Values
+pub fn names(BytesView) -> Array[String] raise @moonzip.Refused
+
+pub fn tar(ArrayView[Entry]) -> Bytes
+
+pub fn targz(ArrayView[Entry], level? : Int32) -> Bytes
+
+pub fn untar(BytesView, limit? : Int32) -> Array[Entry] raise @moonzip.Refused
+
+pub fn untargz(BytesView, limit? : Int32) -> Array[Entry] raise @moonzip.Refused
+
+// Errors
+
+// Types and methods
+pub(all) struct Entry {
+  name : String
+  data : Bytes
+  kind : Tarball
+  mode : Int32
+  mtime : Int64
+  uid : Int32
+  gid : Int32
+  uname : String
+  gname : String
+  link : String
+} derive(Eq, @debug.Debug)
+pub fn Entry::directory(String, mode? : Int32) -> Self
+pub fn Entry::equal(Self, Self) -> Bool
+pub fn Entry::new(String, Bytes, kind? : Tarball, mode? : Int32, mtime? : Int64) -> Self
+pub fn Entry::not_equal(Self, Self) -> Bool
+pub fn Entry::symlink(String, String) -> Self
+pub fn Entry::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Tarball {
+  File
+  Directory
+  Symlink
+  Hardlink
+  Other(Byte)
+} derive(Eq, @debug.Debug)
+pub fn Tarball::equal(Self, Self) -> Bool
+pub fn Tarball::not_equal(Self, Self) -> Bool
+pub fn Tarball::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

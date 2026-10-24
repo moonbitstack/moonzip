@@ -124,7 +124,15 @@ pub fn Reader::next(
     // descriptor, and still true with one when the writer filled it in.
     let usable = packed.to_int() - skip
     guard usable >= 0 else { raise @moonzip.Truncated(at=head) }
-    let made = unpack(plain[0:usable], how, base + 8, limit, None, check, codecs)
+    let made = unpack(
+      plain[0:usable],
+      how,
+      base + 8,
+      limit,
+      None,
+      check,
+      codecs,
+    )
     (made, packed.to_int())
   } else if how == 8 {
     let reader = @deflate.Reader::new(limit?)
@@ -179,9 +187,7 @@ pub fn Reader::next(
   }
   self.at = at
   let got = @moonzip.crc32(data[:])
-  guard got == sum else {
-    raise @moonzip.Checksum(want=sum, got~)
-  }
+  guard got == sum else { raise @moonzip.Checksum(want=sum, got~) }
   Some({
     name,
     data,
@@ -199,11 +205,7 @@ pub fn Reader::next(
 /// gives one thing to check a candidate against: the size it declares has to be
 /// exactly the distance from the start of the data to the descriptor itself. A
 /// byte pattern that survives that is the descriptor.
-fn find_descriptor(
-  archive : BytesView,
-  from : Int32,
-  wide : Bool,
-) -> Int32? {
+fn find_descriptor(archive : BytesView, from : Int32, wide : Bool) -> Int32? {
   let mut at = from
   let span = if wide { 20 } else { 12 }
   while at + span <= archive.length() {

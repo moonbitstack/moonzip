@@ -164,15 +164,7 @@ pub fn Writer::new(
   descriptor~ : Bool = false,
   password? : String,
 ) -> Writer {
-  {
-    level,
-    zip64,
-    descriptor,
-    password,
-    placed: [],
-    at: 0L,
-    closed: false,
-  }
+  { level, zip64, descriptor, password, placed: [], at: 0L, closed: false, }
 }
 
 ///|
@@ -238,11 +230,7 @@ pub fn Writer::add(
   if self.descriptor {
     flags = flags | 0x0008
   }
-  let extra = if widen {
-    zip64_local(unpacked_len, packed_len)
-  } else {
-    []
-  }
+  let extra = if widen { zip64_local(unpacked_len, packed_len) } else { [] }
   let out : Array[Byte] = []
   le32(out, 0x04034B50U)
   le16(out, if widen { 45 } else { 20 })

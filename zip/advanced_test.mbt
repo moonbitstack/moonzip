@@ -12,7 +12,10 @@ fn members() -> Array[@zip.Entry] {
 
 ///|
 /// Walk an archive from the front, which is all a reader receiving one can do.
-fn walk(archive : Bytes, password? : String) -> Array[String] raise @moonzip.Refused {
+fn walk(
+  archive : Bytes,
+  password? : String,
+) -> Array[String] raise @moonzip.Refused {
   let reader = @zip.Reader::new(archive[:])
   let out : Array[String] = []
   while true {
@@ -92,7 +95,10 @@ test "zipcrypto round-trips, and refuses the wrong password" {
 /// the check byte comes from the time, because the header has no checksum yet.
 test "zipcrypto with a data descriptor" {
   let archive = @zip.zip(members()[:], password="s3cret", descriptor=true)
-  assert_eq(@zip.unzip(archive[:], password="s3cret")[1].data, b"two two two two two two two two")
+  assert_eq(
+    @zip.unzip(archive[:], password="s3cret")[1].data,
+    b"two two two two two two two two",
+  )
   assert_eq(walk(archive, password="s3cret"), ["a.txt", "dir/b.txt", "empty"])
 }
 

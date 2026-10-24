@@ -1,0 +1,15 @@
+// tar, POSIX ustar and pax: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html
+//
+// A header per member, then the member's bytes padded to a block boundary, then
+// two empty blocks. No compression anywhere: a tarball is a directory that is a
+// file, and compressing it is gzip's job — which is why `tar.gz` is two formats
+// stacked, not one.
+import {
+  "moonbitstack/moonzip",
+  "moonbitstack/moonzip/gzip",
+}
+
+import {
+  "moonbitstack/moonzip/tar",
+  "moonbitstack/moonbase/base16",
+} for "test"

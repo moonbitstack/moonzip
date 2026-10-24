@@ -70,7 +70,11 @@ fn Keys::of(password : String) -> Keys {
 /// output for the same input, and a build that is not reproducible is a build
 /// whose archives cannot be compared. ZipCrypto offers no security either way,
 /// so nothing is lost — a caller who needs a real boundary needs AES.
-fn secret_prefix(password : String, name : String, mtime : Int64) -> Array[Byte] {
+fn secret_prefix(
+  password : String,
+  name : String,
+  mtime : Int64,
+) -> Array[Byte] {
   let mut mix = @moonzip.crc32(@utf8.encode(name)[:]) ^
     @moonzip.crc32(@utf8.encode(password)[:])
   // The low four bytes of the time, folded in one byte at a time — shifting an
@@ -134,9 +138,7 @@ pub fn zipcrypt_decrypt(
   password : String,
   check : Byte,
 ) -> Bytes raise @moonzip.Refused {
-  guard data.length() >= 12 else {
-    raise @moonzip.Truncated(at=data.length())
-  }
+  guard data.length() >= 12 else { raise @moonzip.Truncated(at=data.length()) }
   let keys = Keys::of(password)
   let out : Array[Byte] = []
   for i in 0..<12 {
