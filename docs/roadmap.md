@@ -166,6 +166,33 @@ Two facts that only the source settles:
 - `state_in_len` is capped at 255 and a run of four or more is written as four
   bytes plus `length - 4`, and that count byte is itself added to the symbol set.
 
+## Where the reference sources are
+
+No compiler and no package index on this machine, so a judge has to be something
+that already runs. Three do:
+
+| Format | Judge | Where |
+|:--|:--|:--|
+| brotli | `brotli` CLI, and Node's `zlib.brotliCompressSync` | `/mingw64/bin/brotli` |
+| zstd | **Node 22's `zlib.zstdCompressSync` / `zstdDecompressSync`** | `node -e "require('zlib').zstdCompressSync"` |
+| 7z | none that runs — see below | — |
+
+Node having zstd is the finding that unblocks it: `node -e` is a two-way judge for
+both remaining codecs, exactly like Python's `lzma` was for ours.
+
+7z is different. There is no `7z` binary, no compiler to build one, and no
+`py7zr` (its dependencies are not installable). What there *is*:
+
+```
+.temp-ref/py7zr/py7zr/properties.py    -- property ids (0x00..0x19) and coder ids
+.temp-ref/py7zr/py7zr/archiveinfo.py   -- every structure, read and write, in one file
+.temp-ref/py7zr/tests/data/*.7z        -- 63 archives written by real 7-Zip
+```
+
+That makes the **reader** verifiable — 63 real archives with known contents is a
+stronger judge than a self round-trip — and the writer only structurally
+verifiable. Say so in the docs rather than implying otherwise.
+
 ## What is not on the list, and why
 
 **bzip2.** Burrows–Wheeler plus move-to-front plus Huffman. It is in Python's
