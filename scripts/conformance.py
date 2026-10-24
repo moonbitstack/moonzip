@@ -13,6 +13,7 @@ its bytes are allowed to change.
 
 import io
 import sys
+import lzma
 import zipfile
 import zlib
 
@@ -87,6 +88,10 @@ def main():
                 blob = bytes.fromhex(rest[0])
                 got = zlib.decompressobj(31).decompress(blob)
                 what = "gzip {}".format(kind)
+            elif form == "lzma":
+                blob = bytes.fromhex(rest[0])
+                got = lzma.decompress(blob, format=lzma.FORMAT_ALONE)
+                what = "lzma {}".format(kind)
             elif form == "zlib":
                 blob = bytes.fromhex(rest[0])
                 got = zlib.decompressobj(15).decompress(blob)

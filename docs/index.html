@@ -279,8 +279,8 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
     <p class="eyebrow">MoonBit · compression</p>
     <h1>Write bytes.<br><em>Read them back.</em></h1>
     <p class="hero__lede">
-      Seven formats, one per package, each with the interface its own specification
-      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy</b> — readers that
+      Eight formats, one per package, each with the interface its own specification
+      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA</b> — readers that
       check what they read, writers that stream, and no dependency beyond
       <code>moonbase</code>.
     </p>
@@ -405,6 +405,11 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
           <td>Both formats, masked CRC-32C per chunk, skippable and unskippable chunk ranges both honoured.</td>
         </tr>
         <tr>
+          <td class="mono">lzma</td><td class="mono">LZMA SDK</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>The range coder and the probability model, and the <code>.lzma</code> container both ways — including the end-marker form Python writes and ours never does.</td>
+        </tr>
+        <tr>
           <td class="mono">brotli</td><td class="mono">RFC 7932</td>
           <td><span class="pill pill--plan">planned</span></td><td><span class="pill pill--plan">planned</span></td>
           <td>Next. The static dictionary and the context modelling are the whole of the work; a partial decoder would read most streams and silently misread the rest.</td>
@@ -416,8 +421,8 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
         </tr>
         <tr>
           <td class="mono">xz · 7z</td><td class="mono">xz, APPNOTE 7z</td>
-          <td><span class="pill pill--plan">planned</span></td><td><span class="pill pill--plan">planned</span></td>
-          <td>Both rest on LZMA2, which is where the work is. 7z is a container over codecs, so it follows LZMA rather than preceding it.</td>
+          <td><span class="pill pill--part">in progress</span></td><td><span class="pill pill--part">in progress</span></td>
+          <td>The LZMA codec underneath is done and verified against Python both ways. What is left is the LZMA2 chunk layer and the two containers — and a container that a reference implementation rejects is not shipped here, which is why this row says in progress rather than yes.</td>
         </tr>
       </tbody>
     </table>

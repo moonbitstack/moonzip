@@ -1,0 +1,15 @@
+// LZMA, and the .lzma container that wraps it:
+// https://www.7-zip.org/sdk.html (LZMA SDK), https://tukaani.org/xz/
+//
+// A range coder with a binary-probability model: no bit stream to align, no
+// block to measure, and one table of probabilities updated per decision. It is
+// the codec inside both xz and 7z, which is why it is a package of its own rather
+// than a detail of either.
+import {
+  "moonbitstack/moonzip",
+}
+
+import {
+  "moonbitstack/moonzip/lzma",
+  "moonbitstack/moonbase/base16",
+} for "test"

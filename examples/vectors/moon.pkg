@@ -7,5 +7,6 @@ import {
   "moonbitstack/moonzip/gzip",
   "moonbitstack/moonzip/zlib",
   "moonbitstack/moonzip/zip",
+  "moonbitstack/moonzip/lzma",
   "moonbitstack/moonbase/base16",
 }

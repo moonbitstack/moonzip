@@ -1,6 +1,6 @@
 # moonzip
 
-Compression for MoonBit. Seven formats, one per package, each with the interface
+Compression for MoonBit. Eight formats, one per package, each with the interface
 its own specification argues for — and no dependency beyond `moonbase`.
 
 ```moonbit
@@ -20,12 +20,14 @@ let members = @zip.unzip(archive[:])
 | `tar` | ustar and pax, and `.tar.gz` on top | POSIX pax |
 | `lz4` | The block and frame formats, with xxHash-32 | lz4 block, frame |
 | `snappy` | The block and framing formats, with CRC-32C | Snappy |
+| `lzma` | The LZMA codec and the `.lzma` container | LZMA SDK |
 
 Run `moon run examples/tour` for the surface in one go, `examples/stream` for the
 streaming pair, and `examples/archive` for the two containers.
 
-Three more are on the way and are named here rather than discovered later:
-**brotli**, **zstd**, and **xz** (with **7z** riding on the same LZMA2 work).
+Four more are on the way and are named here rather than discovered later:
+**xz** and **7z** (both riding on the LZMA codec that is already here, blocked on
+the LZMA2 chunk layer), **bzip2**, and **brotli**.
 Nothing in this library is a stub that returns its input; a format is either
 implemented or it is refused by name.
 
@@ -157,6 +159,24 @@ discovered later.
 ```moonbit
 @zip.unzip(archive[:], codecs=mine[:])
 ```
+
+## LZMA
+
+A range coder with a binary-probability model: no bit stream to align, one table
+of probabilities updated per decision, and a matched-literal trick that makes the
+byte after a match much cheaper than a byte after a literal.
+
+```moonbit
+@lzma.lzma(body[:])            // the .lzma alone container
+@lzma.unlzma(packed[:])        // both a stated length and an end marker
+```
+
+Levels 0–9 map to the same dictionary sizes `xz` uses. The encoder is a greedy
+hash-chain parse, which is roughly zlib's level six in effort — a stream real
+decoders read, not the last few percent.
+
+This is the codec that xz and 7z are built on, which is why it is a package of its
+own: the container work comes next, and it will not need a second codec.
 
 ## The formats chosen for speed
 

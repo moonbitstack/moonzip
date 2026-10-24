@@ -1,0 +1,34 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonzip/lzma"
+
+import {
+  "moonbitstack/moonzip",
+}
+
+// Values
+pub fn dictionary_for(Int32) -> Int32
+
+pub fn encode(BytesView, Int32, Int32, level? : Int32) -> Bytes
+
+pub fn lzma(BytesView, level? : Int32) -> Bytes
+
+pub fn properties_of(Int32, Int32, Int32) -> Int32
+
+pub fn unlzma(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+
+// Errors
+
+// Types and methods
+type Decoder
+pub fn Decoder::append(Self, BytesView) -> Unit
+pub fn Decoder::feed(Self, BytesView, Int32) -> Int32 raise @moonzip.Refused
+pub fn Decoder::length(Self) -> Int32
+pub fn Decoder::new(limit? : Int32) -> Self
+pub fn Decoder::output(Self) -> Bytes
+pub fn Decoder::properties(Self, Int32) -> Unit raise @moonzip.Refused
+pub fn Decoder::reset(Self) -> Unit
+pub fn Decoder::since(Self, Int32) -> Bytes
+
+// Type aliases
+
+// Traits
