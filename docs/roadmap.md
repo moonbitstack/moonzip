@@ -51,32 +51,48 @@ it is why `blocks=Stored` exists.
 
 Level mapping will follow zstd's own table, as `level` here follows zlib's.
 
-## brotli — RFC 7932
+## brotli — the one that is left
 
-The one HTTP already uses. Larger than zstd in code and smaller in output.
+Everything else in this module is done and verified in both directions. This is
+the last format, and it is the largest single piece in the set — not because the
+idea is harder than FSE, but because there are more independent mechanisms and
+each one has its own bit layout.
 
-| Piece | Where the difficulty is |
-|:--|:--|
-| Meta-block loop | A header of five fields whose meanings depend on each other |
-| Prefix codes | Simple codes (1–4 symbols, direct encoding) and complex ones; the code-length code is itself brotli's |
-| Context modelling | Six literal contexts keyed on the last two bytes |
-| Static dictionary | 122,784 bytes in 13,504 words, with ten transforms and a shared prefix/suffix tree |
-| Distance ring buffer | The last four distances, and the "distance is the same again" shorthand |
+What it needs, in the order the reference decoder meets them:
 
-```moonbit
-pub fn brotli(data : BytesView, quality~ : Int32 = 11, window~ : Int32 = 22) -> Bytes
-pub fn unbrotli(data : BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
-pub fn Reader::new(limit? : Int32) -> Reader        // and push/finish
+| Piece | Where to read it | Size |
+|:--|:--|:--|
+| stream header, meta-block header | `c/dec/decode.c:243-340` | WBITS, MNIBBLES, MLEN, the uncompressed and metadata escapes |
+| Huffman codes, both families | `decode.c:807-1060` | simple codes, and complex ones with a code-length code over 18 symbols and 16/17 run-length codes |
+| context map | `decode.c:1060-1160` | an RLE + MTF alphabet, then a prefix code over it |
+| block switching | `ReadBlockSwitchInfo` | three independent categories (literals, insert-and-copy, distance), each with its own type code and count code |
+| literals with context modelling | `decode.c` literal loop | the context is a function of the last two bytes and the mode, which is what makes brotli's literal section better than DEFLATE's |
+| commands | `ReadCommand` | 704 insert-and-copy symbols over a two-dimensional table |
+| distances | `decode.c` distance loop | 16-entry ring, plus 48 codes, plus the dictionary references |
+| **static dictionary** | `c/common/dictionary.bin` | 122,784 bytes, 13,504 words |
+| **transforms** | `c/common/transform.c` | 121 entries: prefix, one of ten transform kinds, suffix |
+
+The dictionary is the part that decides whether a decoder is real. Brotli at any
+quality above the trivial uses dictionary references for words it recognises, so
+a decoder without it reads most of a real file correctly and then corrupts on the
+first common word — the worst failure mode there is. It is 122 KB of data, which
+belongs in a generated `data.mbt` rather than in a hand-written table:
+
+```
+python3 - <<'EOF'   # roughly
+data = open('.temp-ref/brotli/c/common/dictionary.bin','rb').read()
+# emit a base64 string constant; the transforms come from transform.c
+EOF
 ```
 
-The static dictionary is data, not code, and it is the reason a naive
-implementation reads most streams and misreads the rest. It will be generated into
-a `.mbt` file by a script, from the table the RFC publishes, so it can be checked
-rather than typed.
+The judge is the `brotli` CLI (1.2.0, at `/mingw64/bin/brotli`) and Node's
+`zlib.brotliCompressSync` — two independent ones, which is one more than most
+formats here got.
 
-Quality is brotli's own scale (0–11), not a deflate-style 0–9: it selects between
-what are effectively different algorithms, and pretending otherwise would be a
-worse interface.
+The writer, once the reader exists, can start where zstd's did: a legal stream
+that only stores, then LZ77 with simple prefix codes and a single block type and
+no context modelling. Brotli's encoder is a project of its own; its decoder is
+the part that makes the format readable at all.
 
 ## lzma and xz — done
 
