@@ -15,7 +15,7 @@
 ///|
 fn body() -> Bytes {
   let out : Array[Byte] = []
-  for i in 0..<40 {
+  for _ in 0..<40 {
     for b in "the quick brown fox jumps over the lazy dog. " {
       out.push((b.to_int() % 256).to_byte())
     }

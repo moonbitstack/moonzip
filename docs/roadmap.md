@@ -1,4 +1,4 @@
-# Roadmap: the four formats that are not here
+# Roadmap: what is still missing
 
 Written down rather than improvised, because the interface is the part that is
 expensive to change later. Each section names the format, the specification, the
@@ -78,9 +78,13 @@ Quality is brotli's own scale (0–11), not a deflate-style 0–9: it selects be
 what are effectively different algorithms, and pretending otherwise would be a
 worse interface.
 
-## lzma — xz and 7z both stand on it
+## lzma and xz — done
 
-One decoder unlocks two containers, which is why it comes before either.
+Both landed: the range coder, the LZMA codec, the `.lzma` container and the xz
+container over LZMA2 chunks. Each is verified both ways against Python's `lzma`,
+which is the reference implementation the format names. The one detail worth
+remembering: xz pads a block to a four-byte boundary **before** its check, and a
+writer that pads afterwards produces a stream only it can read.
 
 ```moonbit
 // the codec
@@ -141,8 +145,8 @@ cipher, the key derivation and the authentication are the same code.
    and the Huffman half is a second opinion on `deflate/huffman.mbt`.
 2. **brotli** — proves the dictionary and the context model. Nothing else here
    looks like it.
-3. **lzma** — proves the range coder. Unlocks two containers and the hardest
-   decoder in the set.
-4. **xz** — proves the container work: index, checks, block framing.
+3. ~~lzma~~ — done. The range coder, and the hardest decoder in the set.
+4. ~~xz~~ — done. Index, checks, block framing, LZMA2 chunks.
 5. **7z** — proves the architecture: a `Codec` seam that already exists in `zip`,
-   reused rather than reinvented.
+   reused rather than reinvented. Its header is itself an LZMA stream, so it can
+   start now.

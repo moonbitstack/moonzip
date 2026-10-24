@@ -1,6 +1,6 @@
 # moonzip
 
-Compression for MoonBit. Eight formats, one per package, each with the interface
+Compression for MoonBit. Nine formats, one per package, each with the interface
 its own specification argues for — and no dependency beyond `moonbase`.
 
 ```moonbit
@@ -21,13 +21,14 @@ let members = @zip.unzip(archive[:])
 | `lz4` | The block and frame formats, with xxHash-32 | lz4 block, frame |
 | `snappy` | The block and framing formats, with CRC-32C | Snappy |
 | `lzma` | The LZMA codec and the `.lzma` container | LZMA SDK |
+| `xz` | The xz container over LZMA2 | xz file format |
 
 Run `moon run examples/tour` for the surface in one go, `examples/stream` for the
 streaming pair, and `examples/archive` for the two containers.
 
-Four more are on the way and are named here rather than discovered later:
-**xz** and **7z** (both riding on the LZMA codec that is already here, blocked on
-the LZMA2 chunk layer), **bzip2**, and **brotli**.
+Three more are on the way and are named here rather than discovered later:
+**7z** (a container over the LZMA codec that is already here), **bzip2**, and
+**brotli**.
 Nothing in this library is a stub that returns its input; a format is either
 implemented or it is refused by name.
 
@@ -169,7 +170,16 @@ byte after a match much cheaper than a byte after a literal.
 ```moonbit
 @lzma.lzma(body[:])            // the .lzma alone container
 @lzma.unlzma(packed[:])        // both a stated length and an end marker
+
+@xz.xz(body[:])                // the container, one block, CRC-64
+@xz.unxz(packed[:])            // header, block header, index and footer checked
 ```
+
+The xz layer is the LZMA2 chunk framing: a control byte that says how much state
+to discard, the sizes, and a properties byte when the model changes. The
+specification puts the block's padding *before* its check rather than after —
+which is the detail that made the first version of this stream readable by us and
+rejected by everybody else.
 
 Levels 0–9 map to the same dictionary sizes `xz` uses. The encoder is a greedy
 hash-chain parse, which is roughly zlib's level six in effort — a stream real

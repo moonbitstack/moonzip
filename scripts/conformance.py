@@ -88,6 +88,10 @@ def main():
                 blob = bytes.fromhex(rest[0])
                 got = zlib.decompressobj(31).decompress(blob)
                 what = "gzip {}".format(kind)
+            elif form == "xz":
+                blob = bytes.fromhex(rest[0])
+                got = lzma.decompress(blob, format=lzma.FORMAT_XZ)
+                what = "xz {}".format(kind)
             elif form == "lzma":
                 blob = bytes.fromhex(rest[0])
                 got = lzma.decompress(blob, format=lzma.FORMAT_ALONE)

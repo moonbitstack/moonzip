@@ -1,0 +1,14 @@
+// xz: https://tukaani.org/xz/xz-file-format.txt
+//
+// A container: stream header, blocks, index, footer. The codec inside is LZMA2,
+// which is LZMA with a chunk layer so that a decoder can be handed a piece at a
+// time and a dictionary can be reset in the middle of a stream.
+import {
+  "moonbitstack/moonzip",
+  "moonbitstack/moonzip/lzma",
+}
+
+import {
+  "moonbitstack/moonzip/xz",
+  "moonbitstack/moonbase/base16",
+} for "test"

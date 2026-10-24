@@ -228,7 +228,7 @@ LZMA_TEMPLATE = """// Copyright 2026 Leo Cheng
 ///|
 fn body() -> Bytes {
   let out : Array[Byte] = []
-  for i in 0..<40 {
+  for _ in 0..<40 {
     for b in \"the quick brown fox jumps over the lazy dog. \" {
       out.push((b.to_int() % 256).to_byte())
     }
@@ -257,6 +257,50 @@ def write_lzma():
     print("wrote {} ({} bytes)".format(path, len(blob)))
 
 
+XZ_TEMPLATE = """// Copyright 2026 Leo Cheng
+// SPDX-License-Identifier: Apache-2.0
+
+///|
+/// An xz stream written by Python, pinned as it came out.
+///
+/// Python's encoder chooses a different LZMA2 chunking and a different dictionary
+/// from ours, and writes the same body; a reader that only ever saw its own
+/// output would learn nothing from this one.
+///
+///     python3 scripts/interop.py
+///
+/// regenerates this file.
+
+///|
+fn body() -> Bytes {
+  let out : Array[Byte] = []
+  for _ in 0..<40 {
+    for b in \"the quick brown fox jumps over the lazy dog. \" {
+      out.push((b.to_int() % 256).to_byte())
+    }
+  }
+  Bytes::from_array(out)
+}
+
+///|
+test \"python's xz stream reads back\" {
+  let packed = @base16.decode_lossy(
+    \"__HEX__\",
+  )
+  assert_eq(@xz.unxz(packed[:]), body())
+}
+"""
+
+
+def write_xz():
+    payload = b"the quick brown fox jumps over the lazy dog. " * 40
+    blob = lzma_mod.compress(payload, format=lzma_mod.FORMAT_XZ)
+    path = os.path.join(ROOT, "xz", "interop_test.mbt")
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(XZ_TEMPLATE.replace("__HEX__", blob.hex()))
+    print("wrote {} ({} bytes)".format(path, len(blob)))
+
+
 def main():
     shapes = [
         ("plain", build()),
@@ -275,6 +319,7 @@ def main():
     print("wrote {} ({} bytes of vectors)".format(path, sum(len(b) for _, b in shapes)))
     write_tar()
     write_lzma()
+    write_xz()
 
 
 if __name__ == "__main__":
