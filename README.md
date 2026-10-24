@@ -1,6 +1,6 @@
 # moonzip
 
-Compression for MoonBit. Ten formats, one per package, each with the interface
+Compression for MoonBit. Eleven formats, one per package, each with the interface
 its own specification argues for — and no dependency beyond `moonbase`.
 
 ```moonbit
@@ -23,14 +23,14 @@ let members = @zip.unzip(archive[:])
 | `lzma` | The LZMA codec and the `.lzma` container | LZMA SDK |
 | `xz` | The xz container over LZMA2 | xz file format |
 | `bzip2` | Burrows-Wheeler, move-to-front and Huffman, both directions | bzip2 |
+| `sevenz` | The 7z container: folders of coders, solid or separate | 7z format |
 
 Run `moon run examples/tour` for the surface in one go, `examples/stream` for the
 streaming pair, and `examples/archive` for the two containers.
 
-Two more are on the way and are named here rather than discovered later: **7z**,
-a container over the LZMA codec that is already here, and **brotli**. Nothing in
-this library is a stub that returns its input; a format is either implemented or
-it is refused by name.
+Two more are on the way and are named here rather than discovered later: **brotli**
+and **zstd**. Nothing in this library is a stub that returns its input; a format
+is either implemented or it is refused by name.
 
 ## Configuration
 
@@ -215,6 +215,43 @@ look fine and read wrong:
 - Blocks are **not padded**. `bsFinishWrite` is called once, after the trailer, so
   a block boundary can fall in the middle of a byte — which means a streaming
   reader has to carry a bit position, not a byte offset.
+
+## 7z
+
+Not a codec — a container whose compression method is a property of each *folder*.
+A folder is one compressed stream, and it can hold several files at once, which is
+what "solid" means: the compressor saw all of them together, so a phrase repeated
+across two files is paid for once and neither can be read without the other.
+
+```moonbit
+@sevenz.sevenz(members[:], how=@sevenz.Method::Lzma2, solid=true)
+@sevenz.un7z(archive[:])       // folder, substream and signature checksums verified
+@sevenz.names(archive[:])      // the directory only, without touching the data
+```
+
+The reader understands folders whose coders are a straight chain, over **COPY,
+LZMA, LZMA2, BZIP2, DEFLATE and the delta filter**, and reads real 7-Zip archives
+including ones whose directory is itself a compressed stream — which is the normal
+shape, because a directory that is a stream is how a thousand-file archive keeps
+its index under a few kilobytes.
+
+**What it refuses, by name rather than by guessing:** AES encryption (`06 f1 07 01`),
+the branch filters (`03 03 …`: x86, ARM, ARMThumb, PPC, SPARC, IA64), BCJ2 (a
+folder that is a graph rather than a chain), PPMd, and the LZ4 and Zstd coders.
+The error carries the method id, so a caller learns what it met.
+
+Three things about this format are worth remembering, because each one is a
+plausible mistake that produces a stream only its author can read:
+
+- The length encoding is `n` bytes for `7n` bits, with the *first* byte holding the
+  high bits: `80 97` is 151, not 38656. A writer that gets this wrong is correct
+  for every value below 16384.
+- A coder id of length zero is not "no coder" — it is how COPY is spelled.
+- A file table entry is a *boxed* record with mutable fields; filling an array with
+  one gives every slot the same box, and every entry becomes the last one written.
+
+The writer emits an uncompressed directory, which is legal and which any reader
+must accept. The reader accepts both forms.
 
 ## The formats chosen for speed
 

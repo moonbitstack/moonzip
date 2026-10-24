@@ -6,15 +6,23 @@ import {
 }
 
 // Values
+pub fn decoded_dict(Int32) -> Int32
+
+pub fn dict_code(Int32) -> Int32
+
 pub fn dictionary_for(Int32) -> Int32
 
 pub fn encode(BytesView, Int32, Int32, level? : Int32) -> Bytes
 
 pub fn lzma(BytesView, level? : Int32) -> Bytes
 
+pub fn lzma2(BytesView, Int32, Int32) -> Bytes
+
 pub fn properties_of(Int32, Int32, Int32) -> Int32
 
 pub fn unlzma(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+
+pub fn unlzma2(BytesView, Int32, Decoder) -> (Bytes, Int32) raise @moonzip.Refused
 
 // Errors
 

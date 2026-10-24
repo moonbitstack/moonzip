@@ -279,8 +279,8 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
     <p class="eyebrow">MoonBit · compression</p>
     <h1>Write bytes.<br><em>Read them back.</em></h1>
     <p class="hero__lede">
-      Ten formats, one per package, each with the interface its own specification
-      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA, xz, bzip2</b> — readers that
+      Eleven formats, one per package, each with the interface its own specification
+      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA, xz, bzip2, 7z</b> — readers that
       check what they read, writers that stream, and no dependency beyond
       <code>moonbase</code>.
     </p>
@@ -433,9 +433,9 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
           <td>Next. FSE tables and the sequence encoding; the frame layer alone is not a decoder.</td>
         </tr>
         <tr>
-          <td class="mono">7z</td><td class="mono">APPNOTE 7z</td>
-          <td><span class="pill pill--part">in progress</span></td><td><span class="pill pill--part">in progress</span></td>
-          <td>The codec underneath is LZMA, which is done, and the chunk layer it needs is the one xz uses. What is left is 7z's own header — a directory that is itself an LZMA stream.</td>
+          <td class="mono">7z</td><td class="mono">7z format</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Folders of coders over COPY, LZMA, LZMA2, BZIP2, DEFLATE and delta — read from real 7-Zip archives, including ones whose directory is itself compressed. AES, the branch filters and BCJ2 are refused by name.</td>
         </tr>
       </tbody>
     </table>

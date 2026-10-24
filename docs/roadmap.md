@@ -107,22 +107,45 @@ round-trips.
 index. Writing `xz` means writing the index and the check (CRC-32, CRC-64 or
 SHA-256), which is a smaller job than the codec underneath.
 
-## 7z — a container over codecs, not a format of its own
+## 7z — done
 
-7z is to LZMA what zip is to DEFLATE: a directory, an encoded header, and a codec
-identified by an identifier rather than assumed. That is why it comes last and why
-it will reuse `zip`'s shape — `Entry`, a `Codec` trait, a central index.
+The container is built and reads real archives. What it cost, in the order it
+cost it:
 
-```moonbit
-pub fn sevenz(entries : ArrayView[Entry], codec~ : &Codec = ...) -> Bytes
-pub fn unsevenz(data : BytesView, limit? : Int32) -> Array[Entry] raise @moonzip.Refused
-```
+**The length encoding.** `n` bytes carry `7n` bits, and the *first* byte holds the
+high bits — `80 97` is 151. Reading the continuation bytes as if they sat above the
+first byte's payload is a factor of 256 out. It shows up as an unpacked size
+nothing can produce, and only for values at or above 16384, so every small test
+passes.
 
-Its header is itself an LZMA stream in the common case, so `unsevenz` cannot be
-tested before `unlzma` works. Its encryption (AES-256 with a SHA-256 key derived
-from a passphrase by iterated hashing) is the place where "supports encryption"
-becomes a real claim rather than a checkbox — and it is also the natural time to
-revisit zip's gap, since the two would share the AES and the KDF.
+**The selector for COPY.** A coder id of length zero is not a missing coder; it is
+how "no compression" is spelled. A reader that treats it as empty refuses every
+stored archive.
+
+**Boxed records.** `Array::make(n, record)` with a record that has mutable fields
+gives every slot the same box. The symptom is an archive whose every entry is the
+last one written, and it looks exactly like a misaligned file table.
+
+What reads, verified against the 63 archives 7-Zip itself wrote (the fixtures
+shipped with py7zr): COPY, LZMA, LZMA2, BZIP2, DEFLATE, the delta filter, folded
+directories, substream tables, names in UTF-16, times and attributes. 27 of the 42
+small fixtures decode; the rest are refused by name:
+
+| Refused | Id |
+|:--|:--|
+| AES-256 encryption | `06 f1 07 01` |
+| x86, ARM, ARMThumb, PPC, SPARC, IA64 branch filters | `03 03 xx xx` |
+| BCJ2 (a folder that is a graph, not a chain) | `03 03 01 1b` |
+| PPMd | `03 04 01` |
+| LZ4 and Zstd coders | `04 f7 11 04`, `04 f7 11 01` |
+
+Encryption is the one that matters for a "supports archives" claim, and it is also
+the natural moment to close `zip`'s AES gap: both want the same cipher and the same
+passphrase-derived key, so they should be written together.
+
+The writer emits COPY, LZMA or LZMA2, solid or one folder per file, with an
+uncompressed directory. That last part is the honest limit: 7-Zip compresses the
+directory too once there are enough entries to pay, and our writer does not.
 
 ## bzip2 — done
 
@@ -212,9 +235,10 @@ cipher, the key derivation and the authentication are the same code.
 
 1. ~~bzip2~~ — done. The block sort, and the entropy layer that makes a sorted
    block encodable.
-2. **7z** — proves the architecture: a `Codec` seam that already exists in `zip`,
-   reused rather than reinvented. Its header is itself an LZMA stream, so it can
-   start now, and the codec it needs is the one `xz` already uses.
+2. ~~7z~~ — done. The container, and the proof that the architecture holds:
+   `sevenz` reads COPY, LZMA, LZMA2, BZIP2, DEFLATE and delta without a line of
+   codec code of its own. Two of the mistakes it cost are recorded in the README's
+   7z section, both of the kind that pass every small test.
 3. **brotli** — proves the dictionary and the context model. Nothing else here
    looks like it: a 122 KB static dictionary, ten transforms, and literal contexts
    keyed on the last two bytes.

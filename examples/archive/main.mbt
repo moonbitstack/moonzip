@@ -75,6 +75,25 @@ fn main raise {
   }
   println("walked from the front: \{walked}")
 
+  // 7z is the third: a directory of coders, where the compression method is a
+  // property of the folder rather than of the archive.
+  let solid = [
+    @sevenz.Entry::new(
+      "readme.txt",
+      b"a member of an archive\n",
+      mtime=1700000000L,
+    ),
+    @sevenz.Entry::new("data/table.csv", b"name,size\nreadme,24\n"),
+    @sevenz.Entry::directory("empty"),
+  ]
+  for how in [@sevenz.Method::Copy, @sevenz.Method::Lzma, @sevenz.Method::Lzma2] {
+    let archive = @sevenz.sevenz(solid[:], how~)
+    let members_back = @sevenz.un7z(archive[:])
+    println(
+      "7z/\{how.label()}: \{archive.length()} bytes, \{members_back.length()} members, matches: \{members_back[0].data == solid[0].data}",
+    )
+  }
+
   // tar is the other half of the same idea, without the compressed members: one
   // header per file, then the bytes. A tarball is that archive through gzip.
   let files = [

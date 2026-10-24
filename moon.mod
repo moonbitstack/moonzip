@@ -1,6 +1,6 @@
 name = "moonbitstack/moonzip"
 
-version = "0.5.0"
+version = "0.6.0"
 
 readme = "README.md"
 
@@ -19,11 +19,12 @@ keywords = [
   "lzma",
   "xz",
   "bzip2",
+  "7z",
   "compression",
   "moonbit",
 ]
 
-description = "moonzip — compression and archives for MoonBit: deflate, gzip, zlib, zip, tar, lz4, snappy, lzma, xz and bzip2, one format to a package."
+description = "moonzip — compression and archives for MoonBit: deflate, gzip, zlib, zip, tar, lz4, snappy, lzma, xz, bzip2 and 7z, one format to a package."
 
 import {
   "moonbitstack/moonbase@0.4.0",

@@ -1,0 +1,17 @@
+// 7z: https://www.7-zip.org/7z.html
+//
+// A container, not a codec: a signature header, a directory of coders, and the
+// packed streams they describe. The directory is itself often a compressed
+// stream, which is why a reader has to be able to decode before it can parse.
+import {
+  "moonbitstack/moonzip",
+  "moonbitstack/moonzip/lzma",
+  "moonbitstack/moonzip/bzip2",
+  "moonbitstack/moonzip/deflate",
+  "moonbitlang/core/encoding/utf16",
+}
+
+import {
+  "moonbitstack/moonzip/sevenz",
+  "moonbitstack/moonbase/base16",
+} for "test"

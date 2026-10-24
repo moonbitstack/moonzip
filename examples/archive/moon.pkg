@@ -4,4 +4,5 @@ pkgtype(kind: "executable")
 import {
   "moonbitstack/moonzip/tar",
   "moonbitstack/moonzip/zip",
+  "moonbitstack/moonzip/sevenz",
 }
