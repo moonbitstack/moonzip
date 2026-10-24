@@ -279,10 +279,10 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
     <p class="eyebrow">MoonBit · compression</p>
     <h1>Write bytes.<br><em>Read them back.</em></h1>
     <p class="hero__lede">
-      Twelve formats, one per package, each with the interface its own specification
-      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA, xz, bzip2, 7z, zstd</b> — readers that
-      check what they read, writers that stream, and no dependency beyond
-      <code>moonbase</code>.
+      Thirteen formats, one per package, each with the interface its own
+      specification argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy,
+      LZMA, xz, bzip2, 7z, zstd, brotli</b> — readers that check what they read,
+      writers that stream, and no dependency beyond <code>moonbase</code>.
     </p>
     <div class="hero__actions">
       <a class="btn" href="#start">Start reading</a>
@@ -298,15 +298,17 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
       <div class="strata__row"><b>lz4</b><span class="strata__bar strata__bar--thin" style="width:6%"></span><span class="strata__num">1,997 B</span></div>
       <div class="strata__row"><b>gzip</b><span class="strata__bar strata__bar--thin" style="width:6%"></span><span class="strata__num">1,983 B</span></div>
       <div class="strata__row"><b>bzip2</b><span class="strata__bar strata__bar--thin" style="width:4%"></span><span class="strata__num">853 B</span></div>
+      <div class="strata__row"><b>brotli</b><span class="strata__bar strata__bar--thin" style="width:4%"></span><span class="strata__num">682 B</span></div>
       <div class="strata__row"><b>xz</b><span class="strata__bar strata__bar--thin" style="width:3%"></span><span class="strata__num">468 B</span></div>
     </div>
     <p class="tnote">
       One body — 184,000 bytes of English text with a periodic tail — compressed by
       each format, printed by <code>examples/stream</code>. The bars are on a
       square-root scale, or everything below gzip would be invisible. Eight
-      formats, one body, and a spread of four hundred to one: the block sorters at
-      the bottom see repetition that a 32 KiB window cannot, and bzip2 pays for
-      that with a sort and xz with a range coder.
+      compressing formats over one body, and a spread of four hundred to one: the
+      three at the bottom see repetition that a 32 KiB window cannot, and bzip2
+      pays for that with a sort, xz with a range coder, and brotli with a hash
+      chain long enough to find the match at 11,546 bytes.
     </p>
   </div>
 </header>
@@ -424,8 +426,8 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
         </tr>
         <tr>
           <td class="mono">brotli</td><td class="mono">RFC 7932</td>
-          <td><span class="pill pill--plan">planned</span></td><td><span class="pill pill--plan">planned</span></td>
-          <td>Next. The static dictionary and the context modelling are the whole of the work; a partial decoder would read most streams and silently misread the rest.</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Block types, four context modes, and the 122 KB static dictionary with its 121 transforms — verified against libbrotli at qualities 0 to 11. The writer is a plain LZ77 encoder: no dictionary, no context modelling.</td>
         </tr>
         <tr>
           <td class="mono">zstd</td><td class="mono">RFC 8878</td>
@@ -508,6 +510,7 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
           <button class="chip" data-format="deflate-raw" aria-pressed="true">deflate</button>
           <button class="chip" data-format="gzip" aria-pressed="false">gzip</button>
           <button class="chip" data-format="deflate" aria-pressed="false">zlib</button>
+          <button class="chip" data-format="brotli" aria-pressed="false" id="chip-brotli" hidden>brotli</button>
         </div>
       </div>
       <div class="play__cell">
@@ -519,8 +522,8 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
       </div>
     </div>
     <p class="tnote" id="play-note">
-      Runs in your browser through <code>CompressionStream</code>. No input leaves
-      this page.
+      Runs in your browser through <code>CompressionStream</code>, which is the
+      same algorithm the platform ships. No input leaves this page.
     </p>
   </div>
 </section>
@@ -556,6 +559,13 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
         <tr><td class="mono">lz4</td><td class="mono">xxh32</td><td class="mono">(BytesView, seed~=0) → UInt32</td><td>Published vectors, including the two that catch a wrong rotation.</td></tr>
         <tr><td class="mono">snappy</td><td class="mono">snappy · unsnappy</td><td class="mono">(BytesView) → Bytes</td><td>The block format, with the length in front as a varint.</td></tr>
         <tr><td class="mono">snappy</td><td class="mono">frame · unframe</td><td class="mono">(BytesView, checksum~=true, limit?) → Bytes</td><td>Masked CRC-32C per chunk; skippable ranges honoured.</td></tr>
+        <tr><td class="mono">lzma</td><td class="mono">lzma · unlzma</td><td class="mono">(BytesView, level?=6) → Bytes</td><td>The codec on its own, with the thirteen-byte properties header in front.</td></tr>
+        <tr><td class="mono">xz</td><td class="mono">xz · unxz</td><td class="mono">(BytesView, level?=6, check?=Crc64) → Bytes</td><td><code>Check</code> is <code>None</code>, <code>Crc32</code>, <code>Crc64</code> or <code>Sha256</code>.</td></tr>
+        <tr><td class="mono">bzip2</td><td class="mono">bzip2 · unbzip2</td><td class="mono">(BytesView, level?=9) → Bytes</td><td><code>level</code> is the block size in hundreds of kilobytes, 1 to 9.</td></tr>
+        <tr><td class="mono">bzip2</td><td class="mono">Writer · Reader</td><td class="mono">push(BytesView) → Bytes · finish() → Bytes</td><td>Blocks are not padded, so the reader carries a bit position.</td></tr>
+        <tr><td class="mono">sevenz</td><td class="mono">sevenz · un7z</td><td class="mono">(ArrayView[Entry], level?=6, how?=Lzma2, solid?=true) → Bytes</td><td><code>names</code> reads the file table without expanding anything.</td></tr>
+        <tr><td class="mono">zstd</td><td class="mono">zstd · unzstd</td><td class="mono">(BytesView, level?=3) → Bytes</td><td>Frames with a content size and a checksum; the writer uses the predefined FSE tables.</td></tr>
+        <tr><td class="mono">brotli</td><td class="mono">brotli · unbrotli</td><td class="mono">(BytesView, window~=22) → Bytes</td><td><code>window</code> is the log of the window, 10 to 24. The reader knows all four context modes, every block type and the static dictionary.</td></tr>
       </tbody>
     </table>
 
@@ -648,6 +658,15 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
   const note = document.getElementById("play-note");
   const run = document.getElementById("run");
   let format = "deflate-raw";
+
+  // `CompressionStream` grew brotli after the other three, and support is still
+  // uneven, so the chip appears only where the constructor accepts it.
+  try {
+    new CompressionStream("brotli");
+    document.getElementById("chip-brotli").hidden = false;
+  } catch (unsupported) {
+    // Nothing to do: the format simply is not offered here.
+  }
 
   document.querySelectorAll(".chip[data-format]").forEach((chip) => {
     chip.addEventListener("click", () => {

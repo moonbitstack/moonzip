@@ -51,14 +51,14 @@ it is why `blocks=Stored` exists.
 
 Level mapping will follow zstd's own table, as `level` here follows zlib's.
 
-## brotli — the one that is left
+## brotli — done
 
-Everything else in this module is done and verified in both directions. This is
-the last format, and it is the largest single piece in the set — not because the
-idea is harder than FSE, but because there are more independent mechanisms and
-each one has its own bit layout.
+The last format, and the largest single piece in the set — not because the idea
+is harder than FSE, but because there are more independent mechanisms and each
+one has its own bit layout. What it cost, and where each piece lives, is below;
+what is left over for a future session is at the end of this section.
 
-What it needs, in the order the reference decoder meets them:
+What it took, in the order the reference decoder meets them:
 
 | Piece | Where to read it | Size |
 |:--|:--|:--|
@@ -79,20 +79,48 @@ first common word — the worst failure mode there is. It is 122 KB of data, whi
 belongs in a generated `data.mbt` rather than in a hand-written table:
 
 ```
-python3 - <<'EOF'   # roughly
-data = open('.temp-ref/brotli/c/common/dictionary.bin','rb').read()
-# emit a base64 string constant; the transforms come from transform.c
-EOF
+python3 scripts/brotli_data.py .temp-ref/brotli
 ```
 
-The judge is the `brotli` CLI (1.2.0, at `/mingw64/bin/brotli`) and Node's
-`zlib.brotliCompressSync` — two independent ones, which is one more than most
-formats here got.
+That writes `brotli/data.mbt`: the dictionary, the 49 fragments, the 121
+transform triples and the 2,048-entry context table, transcribed from
+`dictionary.bin`, `transform.c` and `context.c`. The bytes arrive in 8 KiB parts
+because a MoonBit token cannot exceed 65,535 characters and the blob needs half a
+million.
 
-The writer, once the reader exists, can start where zstd's did: a legal stream
-that only stores, then LZ77 with simple prefix codes and a single block type and
-no context modelling. Brotli's encoder is a project of its own; its decoder is
-the part that makes the format readable at all.
+The judge is the `brotli` CLI (1.2.0, at `/mingw64/bin/brotli`) and Node's
+`zlib.brotliCompressSync` — the same library twice, but the CLI can also produce
+quality 11 on a large file, which is where the dictionary matters.
+
+What it cost, in the order it cost it:
+
+| Wrong | Right |
+|:--|:--|
+| the 18 code-length widths are four raw bits each | they are a prefix code over six symbols, two to four bits long |
+| a one-symbol code-length code costs one bit per run | the reference zeroes that width, so it costs nothing |
+| the transform table is indexed with `transform * 3` | it holds fragment *ids*; `prefix_suffix_map` turns an id into an offset |
+| the simple form keeps the Huffman widths | the reader derives them from the symbol *count*, and with three symbols the two disagree |
+| the length-limit repair only needs the deep codes clamped | the codelength budget must come back to exactly 2^15, or the tree is not a tree |
+
+The first three were found by decoding real libbrotli streams; the last two by a
+whitebox round-trip test of the prefix coder alone, which is the only way to see
+them — every one of them still compresses and still round-trips against a writer
+that shares the mistake.
+
+What is left for a later session, and why it is a search problem rather than a
+gap in the format:
+
+- **Literal context modelling in the writer.** One tree for all literals costs
+  brotli most of its edge on text.
+- **Block splitting.** One block type per stream means one model for prose and
+  numbers alike.
+- **The static dictionary in the writer.** The reader has all 121 transforms; the
+  writer never emits one.
+- **Large-window brotli.** Deliberately refused by name: it is an incompatible
+  extension, and a stream that claims it is not RFC 7932.
+
+Each of those changes the ratio and not the format, which is why the reader could
+be finished first and why it is the part that matters.
 
 ## lzma and xz — done
 
@@ -255,9 +283,9 @@ cipher, the key derivation and the authentication are the same code.
    `sevenz` reads COPY, LZMA, LZMA2, BZIP2, DEFLATE and delta without a line of
    codec code of its own. Two of the mistakes it cost are recorded in the README's
    7z section, both of the kind that pass every small test.
-3. **brotli** — proves the dictionary and the context model. Nothing else here
-   looks like it: a 122 KB static dictionary, ten transforms, and literal contexts
-   keyed on the last two bytes.
+3. ~~brotli~~ — done. The dictionary and the context model. Nothing else here
+   looks like it: a 122 KB static dictionary, 121 transforms, literal contexts
+   keyed on the last two bytes, and three independently switchable block streams.
 4. ~~zstd~~ — done. The entropy layer: FSE in both directions, Huffman literals,
    sequences and repeat offsets. Its judge is Node's `zlib`, which is libzstd
    compiled in — the first referee here that is not Python.

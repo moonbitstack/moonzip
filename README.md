@@ -1,7 +1,8 @@
 # moonzip
 
-Compression for MoonBit. Twelve formats, one per package, each with the interface
-its own specification argues for — and no dependency beyond `moonbase`.
+Compression for MoonBit. Thirteen formats, one per package, each with the
+interface its own specification argues for — and no dependency beyond
+`moonbase`.
 
 ```moonbit
 let small = @gzip.gzip(body[:])
@@ -25,11 +26,11 @@ let members = @zip.unzip(archive[:])
 | `bzip2` | Burrows-Wheeler, move-to-front and Huffman, both directions | bzip2 |
 | `sevenz` | The 7z container: folders of coders, solid or separate | 7z format |
 | `zstd` | Frames, blocks, FSE and Huffman | RFC 8878 |
+| `brotli` | Meta-blocks, contexts, block types and the 122 KB dictionary | RFC 7932 |
 
 Run `moon run examples/tour` for the surface in one go, `examples/stream` for the
 streaming pair, and `examples/archive` for the two containers.
 
-One more is on the way and is named here rather than discovered later: **brotli**.
 Nothing in this library is a stub that returns its input; a format is either
 implemented or it is refused by name.
 
@@ -290,6 +291,63 @@ Three things about this format cost time and are worth naming:
 - The encoder must not spend bits on the last sequence's state update, because the
   decoder does not read one; it seeds the three states from those symbols instead.
 
+## brotli
+
+Three ideas stacked on the same LZ77 skeleton as DEFLATE, each with its own
+chunk of the format:
+
+- **Block types.** Literals, commands and distances are three separate symbol
+  streams, and each may switch between up to 256 sets of prefix codes, with the
+  two most recent types addressable in three bits. A file with prose and a table
+  of numbers gets one model for each.
+- **Literal contexts.** Every literal is coded with one of 64 sub-alphabets,
+  chosen by the two bytes before it — a hand-written model of where in a UTF-8
+  character the reader is. This is where most of brotli's edge over DEFLATE comes
+  from on text, and it is the reason `utf8` and `signed` are context *modes*
+  rather than a detail.
+- **A static dictionary.** 13,504 common words in several languages, plus 121
+  transforms over them, reachable by a distance larger than the window. A word the
+  encoder recognises costs a distance code instead of its letters.
+
+```moonbit
+@brotli.brotli(body[:])              // window is a parameter, 10 to 24
+@brotli.unbrotli(packed[:], limit=1 << 24)
+```
+
+**The reader is complete**: both prefix-code spellings, all four context modes,
+block switching for all three streams, context maps with run-length coding and
+move-to-front, the distance ring with all sixteen short codes, and every one of
+the 121 dictionary transforms. It is verified against streams written by
+libbrotli — the implementation inside Node's `zlib`, and the same code the
+`brotli` CLI runs — at qualities 0 through 11 and windows 10 through 24, including
+quality 11 on English prose, which is where the dictionary does its work.
+
+**The writer is a plain LZ77 encoder**: a hash chain, one block type per stream,
+one literal code with no context modelling, and Huffman codes from exact counts.
+It does not use the dictionary and does not split blocks. On the body in the table
+below — 184,000 bytes of repetitive English — it reaches 682 bytes, ahead of gzip
+at 1,983 and zstd at 3,042, because the long match at 11,546 bytes is worth more
+than everything the fancier models add. On ordinary prose it is behind gzip by a
+few per cent, which is exactly the size of the modelling it skips.
+
+Four things about this format cost real time:
+
+- **The code-length code is written as a prefix code**, not as four raw bits per
+  value. It looks like a fixed-width field and is not, and a writer that assumes
+  otherwise produces a stream whose trees are almost right.
+- **A code-length code with one symbol costs zero bits.** The reference zeroes
+  that symbol's width after writing the header. A reader that charges one bit per
+  run length desynchronises on the very next symbol, and the streams that hit it
+  are the ones where every literal has the same width — the alphabet, not the
+  prose.
+- **The dictionary transform table holds fragment *ids*.** The 49-prefix table is
+  reached through a second indirection; indexing it with the transform's own
+  position reads past its fifty entries.
+- **The simple prefix-code form does not transmit widths.** The reader derives
+  them from the number of symbols and always gives the shortest one to the symbol
+  it read first, so a writer has to assign widths the same way — with three
+  symbols the frequency-based choice and the positional one disagree.
+
 ## The formats chosen for speed
 
 `lz4` and `snappy` trade ratio for decode speed, and the numbers below are what
@@ -309,6 +367,7 @@ tail, printed by `examples/stream`.
 | xz | 468 | 0.3% |
 | lzma, alone | 415 | 0.2% |
 | zstd | 3,042 | 1.7% |
+| brotli | 682 | 0.4% |
 | — nothing | 184,000 | 100% |
 
 The three at the bottom are the block-sorting and range-coding end of the field:
@@ -330,8 +389,16 @@ hands it to the reference implementation of each format: Python's `zlib`, `gzip`
 and `zipfile`, `bz2` (which is libbz2), `lzma` (which is liblzma, and reads both
 `.lzma` and xz). Each one has to read our bytes back.
 
+`scripts/brotli_check.js` and `scripts/zstd_check.js` cover the two formats
+Python's standard library does not have, and both use the same referee: Node's
+`zlib` module **is** libbrotli and libzstd compiled in. The streams carry their CRC
+on the line so the checker can compare what it decompressed against the body that
+was compressed.
+
 `scripts/interop.py` goes the other way: it writes archives with Python's
-`zipfile`, `tarfile`, `bz2` and `lzma` in the shapes our own writer would never
+`zipfile`, `tarfile`, `bz2` and `lzma`, plus `scripts/brotli_vectors.py` and
+`scripts/zstd_vectors.py` writing frames with Node's `zlib`, in the shapes our own
+writer would never
 produce — a data descriptor because the sink it wrote to could not seek, a forced
 Zip64 header, GNU long names, an LZMA stream with no stated length and an
 end-of-stream marker instead — and pins them as tests. A reader that only ever saw
@@ -353,6 +420,8 @@ moon test  --target all                 # wasm, wasm-gc, js, native
 moon fmt          && git diff --exit-code
 moon info --target all && git diff --exit-code
 python3 scripts/conformance.py < vectors.txt
+node scripts/brotli_check.js < vectors.txt
+node scripts/zstd_check.js < vectors.txt
 python3 scripts/interop.py && git diff --exit-code
 ```
 
