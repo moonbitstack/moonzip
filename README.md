@@ -326,9 +326,11 @@ quality 11 on English prose, which is where the dictionary does its work.
 one literal code with no context modelling, and Huffman codes from exact counts.
 It does not use the dictionary and does not split blocks. On the body in the table
 below — 184,000 bytes of repetitive English — it reaches 682 bytes, ahead of gzip
-at 1,983 and zstd at 3,042, because the long match at 11,546 bytes is worth more
-than everything the fancier models add. On ordinary prose it is behind gzip by a
-few per cent, which is exactly the size of the modelling it skips.
+at 1,983 and zstd at 3,042, because one long match is worth more than everything
+the fancier models add. On prose it lands where gzip does: this repository's own
+README and homepage, 61,925 bytes, come out at 19,538 against `gzip -9`'s 19,506,
+which is 0.2%. What it loses to context modelling it wins back with longer
+distances, and on text that is the whole trade.
 
 Four things about this format cost real time:
 
