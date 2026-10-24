@@ -3,6 +3,7 @@ package "moonbitstack/moonzip/gzip"
 
 import {
   "moonbitstack/moonzip",
+  "moonbitstack/moonzip/deflate",
 }
 
 // Values
@@ -15,6 +16,15 @@ pub fn gzip(BytesView, level? : Int32, window? : Int32, chain? : Int32, mtime? :
 // Errors
 
 // Types and methods
+type Reader
+pub fn Reader::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Reader::new(checksum? : Bool, length? : Bool, header_crc? : Bool, limit? : Int32) -> Self
+pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
+
+type Writer
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, mtime? : UInt32, name? : String, comment? : String, os? : Int32, blocks? : @deflate.Blocks) -> Self
+pub fn Writer::push(Self, BytesView) -> Bytes
 
 // Type aliases
 

@@ -6,11 +6,12 @@
 ///
 ///     moon run examples/vectors
 ///
-/// The lines are `deflate <kind> <level> <blocks> <hex>`, `gzip <kind> <hex>`
-/// and `zlib <kind> <hex>`. `scripts/conformance.py` reads them and hands each
-/// stream to Python's zlib, which got the same input back or the check fails.
-/// It is how "others can read what we write" stays true rather than being
-/// asserted once and left to rot.
+/// The lines are `deflate <kind> <level> <blocks> <hex>`, `gzip <kind> <hex>`,
+/// `zlib <kind> <hex>`, and `stream <form> <kind> <step> <hex>` for the writers
+/// that take a body a piece at a time. `scripts/conformance.py` reads them and
+/// hands each stream to Python's zlib, which got the same input back or the
+/// check fails. It is how "others can read what we write" stays true rather
+/// than being asserted once and left to rot.
 
 ///|
 /// The seven inputs every vector is taken over: nothing, one byte, a long run,
@@ -55,7 +56,46 @@ fn name_of(blocks : @deflate.Blocks) -> String {
     Auto => "auto"
     Fixed => "fixed"
     Dynamic => "dynamic"
+    Stored => "stored"
   }
+}
+
+///|
+/// A gzip stream written in chunks of `step` bytes.
+fn stream_gzip(body : Bytes, step : Int32) -> Bytes {
+  let writer = @gzip.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+/// A zlib stream written in chunks of `step` bytes.
+fn stream_zlib(body : Bytes, step : Int32) -> Bytes {
+  let writer = @zlib.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
 }
 
 ///|
@@ -68,8 +108,9 @@ fn main {
           @deflate.Blocks::Auto,
           @deflate.Blocks::Fixed,
           @deflate.Blocks::Dynamic,
+          @deflate.Blocks::Stored,
         ] {
-        if level == 0 && blocks != Auto {
+        if level == 0 && blocks != @deflate.Blocks::Auto {
           continue
         }
         let made = @deflate.deflate(body[:], level~, blocks~)
@@ -80,5 +121,13 @@ fn main {
     }
     println("gzip \{kind} \{@base16.encode(@gzip.gzip(body[:])[:])}")
     println("zlib \{kind} \{@base16.encode(@zlib.zlib(body[:])[:])}")
+    for step in [1, 7, 4096, 65536] {
+      println(
+        "stream gzip \{kind} \{step} \{@base16.encode(stream_gzip(body, step)[:])}",
+      )
+      println(
+        "stream zlib \{kind} \{step} \{@base16.encode(stream_zlib(body, step)[:])}",
+      )
+    }
   }
 }

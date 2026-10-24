@@ -43,22 +43,33 @@ def main():
         parts = line.split()
         if not parts:
             continue
-        form, kind, rest = parts[0], int(parts[1]), parts[2:]
-        want = sample(kind)
-        if form == "deflate":
-            level, blocks, blob = rest[0], rest[1], bytes.fromhex(rest[2])
-            got = zlib.decompressobj(-15).decompress(blob)
-            what = "deflate {} level={} blocks={}".format(kind, level, blocks)
-        elif form == "gzip":
-            blob = bytes.fromhex(rest[0])
-            got = zlib.decompressobj(31).decompress(blob)
-            what = "gzip {}".format(kind)
-        elif form == "zlib":
-            blob = bytes.fromhex(rest[0])
-            got = zlib.decompressobj(15).decompress(blob)
-            what = "zlib {}".format(kind)
+        form = parts[0]
+        if form == "stream":
+            # Written a piece at a time, so the block boundaries are not the
+            # ones a single call would produce — still one stream, still has to
+            # read back.
+            inner, kind = parts[1], int(parts[2])
+            step, blob = parts[3], bytes.fromhex(parts[4])
+            want = sample(kind)
+            got = zlib.decompressobj(31 if inner == "gzip" else 15).decompress(blob)
+            what = "stream {} {} step={}".format(inner, kind, step)
         else:
-            continue
+            kind, rest = int(parts[1]), parts[2:]
+            want = sample(kind)
+            if form == "deflate":
+                level, blocks, blob = rest[0], rest[1], bytes.fromhex(rest[2])
+                got = zlib.decompressobj(-15).decompress(blob)
+                what = "deflate {} level={} blocks={}".format(kind, level, blocks)
+            elif form == "gzip":
+                blob = bytes.fromhex(rest[0])
+                got = zlib.decompressobj(31).decompress(blob)
+                what = "gzip {}".format(kind)
+            elif form == "zlib":
+                blob = bytes.fromhex(rest[0])
+                got = zlib.decompressobj(15).decompress(blob)
+                what = "zlib {}".format(kind)
+            else:
+                continue
         checked += 1
         if got != want:
             failed += 1

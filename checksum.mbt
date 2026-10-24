@@ -52,3 +52,53 @@ pub fn Crc::push(self : Crc, data : BytesView) -> Unit {
 pub fn Crc::finish(self : Crc) -> UInt32 {
   self.state ^ 0xFFFFFFFFU
 }
+
+// ------------------------------------------------------------------- adler-32
+
+///|
+/// Adler-32 (RFC 1950 §9): two running sums modulo the largest prime below
+/// 65536. Cheaper than a CRC and weaker, which is the trade zlib made.
+pub fn adler32(data : BytesView) -> UInt32 {
+  let sum = Adler::new()
+  sum.push(data)
+  sum.finish()
+}
+
+///|
+/// The same checksum, taken a piece at a time, for a body that is never held.
+pub(all) struct Adler {
+  mut a : UInt32
+  mut b : UInt32
+}
+
+///|
+/// The running state: `a` starts at one, `b` at nothing.
+pub fn Adler::new() -> Adler {
+  { a: 1U, b: 0U, }
+}
+
+///|
+/// Fold a chunk into the running state.
+///
+/// 5552 is the most bytes that can be added before the sums could overflow
+/// 32 bits, so the modulo runs once a block instead of once a byte.
+pub fn Adler::push(self : Adler, data : BytesView) -> Unit {
+  let mut at = 0
+  let n = data.length()
+  while at < n {
+    let stop = if n - at < 5552 { n } else { at + 5552 }
+    while at < stop {
+      self.a += data[at].to_uint()
+      self.b += self.a
+      at += 1
+    }
+    self.a = self.a % 65521U
+    self.b = self.b % 65521U
+  }
+}
+
+///|
+/// The checksum itself: `b` in the high half, `a` in the low.
+pub fn Adler::finish(self : Adler) -> UInt32 {
+  ((self.b % 65521U) << 16) | (self.a % 65521U)
+}

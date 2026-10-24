@@ -79,25 +79,13 @@ pub fn unzlib(
 }
 
 ///|
-/// Adler-32 (RFC 1950 §9): two running sums modulo the largest prime below
-/// 65536. Cheaper than a CRC and weaker, which is the trade zlib made.
+/// Adler-32, where the container that specifies it names it.
+///
+/// The implementation is `@moonzip.adler32`; keeping it here as well means a
+/// caller who has the container in hand does not have to reach for the root
+/// package to checksum what it read.
 pub fn adler32(data : BytesView) -> UInt32 {
-  let mut a = 1U
-  let mut b = 0U
-  // 5552 is the most bytes that can be added before the sums could overflow
-  // 32 bits, so the modulo runs once a block instead of once a byte.
-  let mut at = 0
-  while at < data.length() {
-    let stop = if data.length() - at < 5552 { data.length() } else { at + 5552 }
-    while at < stop {
-      a += data[at].to_uint()
-      b += a
-      at += 1
-    }
-    a = a % 65521U
-    b = b % 65521U
-  }
-  (b << 16) | a
+  @moonzip.adler32(data)
 }
 
 ///|

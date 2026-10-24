@@ -6,3 +6,7 @@ import {
   "moonbitstack/moonzip",
   "moonbitstack/moonzip/deflate",
 }
+
+import {
+  "moonbitstack/moonzip/zlib",
+} for "test"

@@ -9,5 +9,6 @@ import {
 
 import {
   "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonzip/gzip",
   "moonbitstack/moonbase/base16",
 } for "test"

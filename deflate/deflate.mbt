@@ -20,6 +20,10 @@ pub(all) enum Blocks {
   /// Dynamic Huffman codes only: the writer must carry its own code tables.
   /// The largest output on text, and the reason to have it on at all.
   Dynamic
+  /// No compression at all: the input verbatim in stored blocks. This is what
+  /// `level = 0` means, and asking for it by name is the way to say it without
+  /// going through a level.
+  Stored
 } derive(Eq, Debug)
 
 ///|
@@ -59,7 +63,7 @@ pub fn deflate(
   guard window >= 256 && window <= 32768 else {
     abort("deflate: a \{window}-byte window is outside what DEFLATE allows")
   }
-  if level == 0 {
+  if level == 0 || blocks is Stored {
     return stored_blocks(data)
   }
   let buf = data.to_array()
@@ -68,7 +72,7 @@ pub fn deflate(
     None => chain_for(level)
   }
   let bw = BitWriter::new()
-  emit_block(bw, buf, 0, window, depth, blocks, true)
+  emit_block(bw, buf, 0, buf.length(), window, depth, blocks, true)
   bw.finish()
 }
 
@@ -229,7 +233,13 @@ pub fn Writer::new(
     from: 0,
     window,
     chain: depth,
-    blocks,
+    // A level of zero is "do not compress", and the block choice has nothing
+    // to decide in that case.
+    blocks: if level == 0 {
+      Stored
+    } else {
+      blocks
+    },
     closed: false,
   }
 }
@@ -246,12 +256,13 @@ pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
       self.bw,
       self.buf,
       self.from,
+      self.from + chunk,
       self.window,
       self.chain,
       self.blocks,
       false,
     )
-    self.from = self.buf.length()
+    self.from += chunk
     self.retain()
   }
   self.bw.take()
@@ -281,6 +292,7 @@ pub fn Writer::finish(self : Writer) -> Bytes {
       self.bw,
       self.buf,
       self.from,
+      self.buf.length(),
       self.window,
       self.chain,
       self.blocks,
@@ -307,15 +319,17 @@ fn emit_block(
   bw : BitWriter,
   buf : Array[Byte],
   from : Int32,
+  to : Int32,
   window : Int32,
   depth : Int32,
   blocks : Blocks,
   last : Bool,
 ) -> Unit {
-  let (lens, dists) = parse(buf, from, window, depth)
+  let (lens, dists) = parse(buf, from, to, window, depth)
   match blocks {
     Fixed => write_fixed(bw, lens, dists, last)
     Dynamic => write_dynamic(bw, lens, dists, last)
+    Stored => write_stored(bw, buf, from, to, last)
     Auto => {
       // The dynamic candidate is written out to be measured, and written again
       // only if it won — a block's bits are the same wherever it starts, but
@@ -323,13 +337,13 @@ fn emit_block(
       let probe = BitWriter::new()
       write_dynamic(probe, lens, dists, last)
       let fixed = fixed_cost(lens, dists)
-      let stored = stored_cost(buf.length() - from)
+      let stored = stored_cost(to - from)
       if probe.count < fixed && probe.count < stored {
         write_dynamic(bw, lens, dists, last)
       } else if fixed <= stored {
         write_fixed(bw, lens, dists, last)
       } else {
-        write_stored(bw, buf, from, last)
+        write_stored(bw, buf, from, to, last)
       }
     }
   }
@@ -344,14 +358,15 @@ fn emit_block(
 fn parse(
   buf : Array[Byte],
   from : Int32,
+  to : Int32,
   window : Int32,
   depth : Int32,
 ) -> (Array[Int32], Array[Int32]) {
-  let n = buf.length()
+  let n = to
   let lens : Array[Int32] = []
   let dists : Array[Int32] = []
   let head = Array::make(1 << 15, -1)
-  let prev = Array::make(if n > 0 { n } else { 1 }, -1)
+  let prev = Array::make(if buf.length() > 0 { buf.length() } else { 1 }, -1)
   // The retained window goes into the chains first, or the first block of a
   // stream could not match against anything before it.
   for i in 0..<from {
@@ -417,7 +432,8 @@ fn parse(
 /// block carries at most 65535 bytes, so a longer input takes several.
 fn stored_blocks(data : BytesView) -> Bytes {
   let bw = BitWriter::new()
-  write_stored(bw, data.to_array(), 0, true)
+  let buf = data.to_array()
+  write_stored(bw, buf, 0, buf.length(), true)
   bw.finish()
 }
 
@@ -456,9 +472,10 @@ fn write_stored(
   bw : BitWriter,
   buf : Array[Byte],
   from : Int32,
+  to : Int32,
   last : Bool,
 ) -> Unit {
-  let n = buf.length()
+  let n = to
   let mut at = from
   let mut first = true
   while at < n || first {
@@ -757,6 +774,31 @@ pub fn Reader::push(
   self.br.push(data)
   self.decode()
   self.take()
+}
+
+///|
+/// Input handed to the reader that the DEFLATE stream did not use, and the
+/// reader's buffer emptied.
+///
+/// A container that wraps DEFLATE needs this. The reader stops the moment the
+/// last block ends, so a gzip trailer or a second member is still sitting in
+/// the buffer — and the container is the only thing that knows what to do with
+/// it. `gunzip` takes its eight-byte trailer from here.
+pub fn Reader::rest(self : Reader) -> Bytes {
+  let out : Array[Byte] = []
+  for i in self.br.pos..<self.br.buf.length() {
+    out.push(self.br.buf[i])
+  }
+  self.br.buf = []
+  self.br.pos = 0
+  Bytes::from_array(out)
+}
+
+///|
+/// Whether the last block has been read, which is what a container checks
+/// before it looks for a trailer.
+pub fn Reader::done(self : Reader) -> Bool {
+  self.stage is Done
 }
 
 ///|
