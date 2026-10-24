@@ -102,3 +102,57 @@ pub fn Adler::push(self : Adler, data : BytesView) -> Unit {
 pub fn Adler::finish(self : Adler) -> UInt32 {
   ((self.b % 65521U) << 16) | (self.a % 65521U)
 }
+
+// ------------------------------------------------------------------- crc-32c
+
+///|
+/// CRC-32C, the Castagnoli polynomial: the checksum that has hardware support on
+/// every x86 since Nehalem and every ARM since v8, which is why Snappy and iSCSI
+/// chose it over the older CRC-32 that gzip and ZIP use.
+///
+/// It lives here beside the other two for the same reason they are here: it is a
+/// checksum the formats specify, not something a format invents, and a caller
+/// comparing two of them should find them in one place.
+pub fn crc32c(data : BytesView) -> UInt32 {
+  let sum = Castagnoli::new()
+  sum.push(data)
+  sum.finish()
+}
+
+///|
+/// CRC-32C taken a piece at a time, for a body that is never held whole.
+pub(all) struct Castagnoli {
+  mut state : UInt32
+}
+
+///|
+pub fn Castagnoli::new() -> Castagnoli {
+  { state: 0xFFFFFFFFU, }
+}
+
+///|
+pub fn Castagnoli::push(self : Castagnoli, data : BytesView) -> Unit {
+  for b in data {
+    self.state = self.state ^ b.to_uint()
+    for _ in 0..<8 {
+      self.state = if (self.state & 1U) != 0U {
+        (self.state >> 1) ^ 0x82F63B78U
+      } else {
+        self.state >> 1
+      }
+    }
+  }
+}
+
+///|
+pub fn Castagnoli::finish(self : Castagnoli) -> UInt32 {
+  self.state ^ 0xFFFFFFFFU
+}
+
+///|
+/// The mask Snappy applies to a CRC-32C before putting it in a frame, so that a
+/// checksum never looks like the length in front of it — and so that a reader
+/// that echoes the bytes back cannot be fooled into accepting them.
+pub fn mask_crc32c(sum : UInt32) -> UInt32 {
+  ((sum >> 15) | (sum << 17)) + 0xA282EAD8U
+}

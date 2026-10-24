@@ -1,0 +1,13 @@
+// Snappy, block and framing formats: https://github.com/google/snappy/blob/main/format_description.txt
+//
+// LZ77 with almost no ceremony: a varint, then tags that are either literals or
+// copies. The framing format adds a stream identifier and a masked CRC-32C per
+// chunk. It is Google's answer to LZ4 — the same bet, that a decoder fast enough
+// is worth more than a ratio two points higher.
+import {
+  "moonbitstack/moonzip",
+}
+
+import {
+  "moonbitstack/moonzip/snappy",
+} for "test"

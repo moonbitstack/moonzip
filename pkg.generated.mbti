@@ -10,6 +10,10 @@ pub fn adler32(BytesView) -> UInt32
 
 pub fn crc32(BytesView) -> UInt32
 
+pub fn crc32c(BytesView) -> UInt32
+
+pub fn mask_crc32c(UInt32) -> UInt32
+
 // Errors
 pub(all) suberror Refused {
   Truncated(at~ : Int32)
@@ -35,6 +39,13 @@ pub(all) struct Adler {
 pub fn Adler::finish(Self) -> UInt32
 pub fn Adler::new() -> Self
 pub fn Adler::push(Self, BytesView) -> Unit
+
+pub(all) struct Castagnoli {
+  mut state : UInt32
+}
+pub fn Castagnoli::finish(Self) -> UInt32
+pub fn Castagnoli::new() -> Self
+pub fn Castagnoli::push(Self, BytesView) -> Unit
 
 pub(all) struct Crc {
   mut state : UInt32

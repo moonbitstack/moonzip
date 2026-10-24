@@ -1,0 +1,25 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonzip/lz4"
+
+import {
+  "moonbitstack/moonzip",
+}
+
+// Values
+pub fn frame(BytesView, level? : Int32) -> Bytes
+
+pub fn lz4(BytesView, level? : Int32) -> Bytes
+
+pub fn unframe(BytesView, checksum? : Bool, limit? : Int32) -> Bytes raise @moonzip.Refused
+
+pub fn unlz4(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+
+pub fn xxh32(BytesView, seed? : UInt32) -> UInt32
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
