@@ -1,0 +1,148 @@
+# Roadmap: the four formats that are not here
+
+Written down rather than improvised, because the interface is the part that is
+expensive to change later. Each section names the format, the specification, the
+entry points it will have, and — the part that matters — *why* those and not
+others.
+
+Everything below follows the vocabulary the seven existing packages already use:
+
+- `BytesView` in, `Bytes` out.
+- `raise @moonzip.Refused` on the reading side only. A writer has no input to
+  distrust, so a writer does not raise.
+- `~` for a parameter with a default the caller may want to change, `?` for one
+  that changes behaviour rather than size (`limit`, `password`, `name`).
+- One package per format, named after the format. No umbrella package.
+- Streaming `Writer`/`Reader` where the format has a natural unit to stream — a
+  chunk, a block, a frame — and not where it does not.
+
+## zstd — RFC 8878
+
+The one with the widest reach: every Linux distribution, every database, and
+`Content-Encoding: zstd` on the web. Three layers, and none of them is optional
+for a reader that expects to read real files:
+
+| Layer | What it is |
+|:--|:--|
+| Frame | Magic, frame header with window and content size, block loop, optional content checksum |
+| Block | Raw, RLE, or compressed: literals section, then sequences |
+| Entropy | Huffman for literals, FSE (finite-state entropy) for literal lengths, match lengths and offsets |
+
+```moonbit
+pub fn zstd(data : BytesView, level~ : Int32 = 3, content_size~ : Bool = true) -> Bytes
+pub fn unzstd(data : BytesView, limit? : Int32, checksum~ : Bool = true) -> Bytes raise @moonzip.Refused
+
+pub fn Writer::new(level~ : Int32 = 3) -> Writer
+pub fn Writer::push(self : Writer, data : BytesView) -> Bytes
+pub fn Writer::finish(self : Writer) -> Bytes
+
+pub fn Reader::new(limit? : Int32, checksum~ : Bool = true) -> Reader
+pub fn Reader::push(self : Reader, data : BytesView) -> Bytes raise @moonzip.Refused
+pub fn Reader::finish(self : Reader) -> Bytes raise @moonzip.Refused
+```
+
+The work is the FSE decoder and the Huffman decoder, in that order: FSE is the
+harder of the two (two interleaved states, a table built from a normalised
+distribution, a bitstream read backwards), and nothing in the format reads
+without it. The encoder can legitimately start as raw and RLE blocks — a
+conforming zstd stream that does not compress is still a conforming zstd stream —
+and grow a real encoder afterwards. That is the same road DEFLATE took here, and
+it is why `blocks=Stored` exists.
+
+Level mapping will follow zstd's own table, as `level` here follows zlib's.
+
+## brotli — RFC 7932
+
+The one HTTP already uses. Larger than zstd in code and smaller in output.
+
+| Piece | Where the difficulty is |
+|:--|:--|
+| Meta-block loop | A header of five fields whose meanings depend on each other |
+| Prefix codes | Simple codes (1–4 symbols, direct encoding) and complex ones; the code-length code is itself brotli's |
+| Context modelling | Six literal contexts keyed on the last two bytes |
+| Static dictionary | 122,784 bytes in 13,504 words, with ten transforms and a shared prefix/suffix tree |
+| Distance ring buffer | The last four distances, and the "distance is the same again" shorthand |
+
+```moonbit
+pub fn brotli(data : BytesView, quality~ : Int32 = 11, window~ : Int32 = 22) -> Bytes
+pub fn unbrotli(data : BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+pub fn Reader::new(limit? : Int32) -> Reader        // and push/finish
+```
+
+The static dictionary is data, not code, and it is the reason a naive
+implementation reads most streams and misreads the rest. It will be generated into
+a `.mbt` file by a script, from the table the RFC publishes, so it can be checked
+rather than typed.
+
+Quality is brotli's own scale (0–11), not a deflate-style 0–9: it selects between
+what are effectively different algorithms, and pretending otherwise would be a
+worse interface.
+
+## lzma — xz and 7z both stand on it
+
+One decoder unlocks two containers, which is why it comes before either.
+
+```moonbit
+// the codec
+pub fn lzma(data : BytesView, preset~ : Int32 = 6) -> Bytes
+pub fn unlzma(data : BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+
+// the container
+pub fn xz(data : BytesView, preset~ : Int32 = 6, check~ : Check = Crc64) -> Bytes
+pub fn unxz(data : BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+```
+
+LZMA is a range coder with a binary-probability model, which makes it a different
+kind of program from everything above: there is no bitstream to align, no block
+to measure, and the state is a table of probabilities updated per decision. The
+decoder is roughly a thousand lines and almost impossible to get right by
+inspection — the tests will lean on vectors from `xz` itself rather than on
+round-trips.
+
+`unxz` reads the container: stream header and footer, the block header, and the
+index. Writing `xz` means writing the index and the check (CRC-32, CRC-64 or
+SHA-256), which is a smaller job than the codec underneath.
+
+## 7z — a container over codecs, not a format of its own
+
+7z is to LZMA what zip is to DEFLATE: a directory, an encoded header, and a codec
+identified by an identifier rather than assumed. That is why it comes last and why
+it will reuse `zip`'s shape — `Entry`, a `Codec` trait, a central index.
+
+```moonbit
+pub fn sevenz(entries : ArrayView[Entry], codec~ : &Codec = ...) -> Bytes
+pub fn unsevenz(data : BytesView, limit? : Int32) -> Array[Entry] raise @moonzip.Refused
+```
+
+Its header is itself an LZMA stream in the common case, so `unsevenz` cannot be
+tested before `unlzma` works. Its encryption (AES-256 with a SHA-256 key derived
+from a passphrase by iterated hashing) is the place where "supports encryption"
+becomes a real claim rather than a checkbox — and it is also the natural time to
+revisit zip's gap, since the two would share the AES and the KDF.
+
+## What is not on the list, and why
+
+**bzip2.** Burrows–Wheeler plus move-to-front plus Huffman. It is in Python's
+standard library, so "parity" argues for it; it is also almost unused in new work,
+and its block-sorting transform is a self-contained week of work that would not
+make any other format easier. It is a `Codec` for `zip` before it is a package.
+
+**Split and spanned volumes.** A `zip` written across several files is a filesystem
+concern dressed as a format concern: the same archive with a different name per
+part. When it lands it will be a wrapper that takes a writer and a part size, not a
+flag on `zip`.
+
+**AES in zip.** Listed under 7z above because that is when it becomes cheap: the
+cipher, the key derivation and the authentication are the same code.
+
+## The order, and what each one proves
+
+1. **zstd** — proves the entropy layer. FSE and Huffman written once serve zstd,
+   and the Huffman half is a second opinion on `deflate/huffman.mbt`.
+2. **brotli** — proves the dictionary and the context model. Nothing else here
+   looks like it.
+3. **lzma** — proves the range coder. Unlocks two containers and the hardest
+   decoder in the set.
+4. **xz** — proves the container work: index, checks, block framing.
+5. **7z** — proves the architecture: a `Codec` seam that already exists in `zip`,
+   reused rather than reinvented.
