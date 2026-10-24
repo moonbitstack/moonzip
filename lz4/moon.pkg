@@ -1,0 +1,13 @@
+// lz4, block and frame formats: https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md
+//
+// A block is a run of sequences: a length token, that many literals, then a
+// two-byte back-reference and a match length. The frame wraps blocks with a
+// header, a checksum and an optional content hash. The design target is speed,
+// not ratio — which is why the format is this small.
+import {
+  "moonbitstack/moonzip",
+}
+
+import {
+  "moonbitstack/moonzip/lz4",
+} for "test"
