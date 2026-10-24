@@ -52,3 +52,42 @@ jobs:
       - name: interfaces are up to date
         run: |
           moon info --target all && git diff --exit-code
+
+  # The gate above proves the library agrees with itself. This job proves it
+  # agrees with somebody else: every stream the vectors example prints is handed
+  # to Python's zlib, gzip and zipfile, which have to read it back. A reader that
+  # only ever sees its own output can be consistently wrong for years.
+  conformance:
+    permissions:
+      contents: read
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: install
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: post install
+        run: |
+          moon version --all
+          moon update
+
+      - name: others can read what we write
+        run: |
+          moon run examples/vectors --target native > /tmp/vectors.txt
+          python3 scripts/conformance.py < /tmp/vectors.txt
+
+      - name: we read what others write
+        run: |
+          python3 scripts/interop.py
+          git diff --exit-code -- '*/interop_test.mbt'
+
+      - name: the examples run
+        run: |
+          moon run examples/tour --target native > /dev/null
+          moon run examples/stream --target native > /dev/null
+          moon run examples/archive --target native > /dev/null

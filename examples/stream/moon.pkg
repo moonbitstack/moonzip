@@ -1,0 +1,11 @@
+// A body compressed and decompressed a piece at a time:
+// `moon run examples/stream`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/deflate",
+  "moonbitstack/moonzip/gzip",
+  "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonzip/lz4",
+  "moonbitstack/moonzip/snappy",
+}

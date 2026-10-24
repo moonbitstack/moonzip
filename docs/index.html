@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moonzip — compression for MoonBit</title>
+<meta name="description" content="DEFLATE, gzip, zlib, zip, tar, lz4 and snappy for MoonBit. One algorithm per package, with streaming readers and writers and no dependencies beyond the standard library.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23191C1B'/><path d='M6 10h20M6 16h14M6 22h20' stroke='%23C99A2E' stroke-width='3'/></svg>">
+<style>
+/* ---------------------------------------------------------------- the strata
+   Compression is a stack of layers that collapse. That is the whole design:
+   rules that behave like strata, numerals that behave like core samples, and a
+   single accent that appears only where something is measured. */
+:root {
+  --paper: #F2EFE7;
+  --paper-deep: #E7E2D5;
+  --ink: #191C1B;
+  --ink-soft: #4A4F4B;
+  --ink-faint: #7C817B;
+  --rust: #A8481F;
+  --moss: #345745;
+  --gold: #8A6614;
+  --line: #CDC6B4;
+  --code-bg: #E9E4D6;
+  --mark: #F0DFAE;
+  --shadow: 0 1px 0 rgba(25, 28, 27, .06), 0 12px 32px -24px rgba(25, 28, 27, .5);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0E1110;
+    --paper-deep: #151A18;
+    --ink: #E8E4D9;
+    --ink-soft: #B3B0A5;
+    --ink-faint: #7E8279;
+    --rust: #E08050;
+    --moss: #7FB79A;
+    --gold: #D9B356;
+    --line: #2C3230;
+    --code-bg: #151A18;
+    --mark: #3A3220;
+    --shadow: 0 1px 0 rgba(0, 0, 0, .5), 0 18px 40px -28px rgba(0, 0, 0, .9);
+  }
+}
+html[data-theme="light"] {
+  --paper: #F2EFE7; --paper-deep: #E7E2D5; --ink: #191C1B; --ink-soft: #4A4F4B;
+  --ink-faint: #7C817B; --rust: #A8481F; --moss: #345745; --gold: #8A6614;
+  --line: #CDC6B4; --code-bg: #E9E4D6; --mark: #F0DFAE;
+  --shadow: 0 1px 0 rgba(25,28,27,.06), 0 12px 32px -24px rgba(25,28,27,.5);
+}
+html[data-theme="dark"] {
+  --paper: #0E1110; --paper-deep: #151A18; --ink: #E8E4D9; --ink-soft: #B3B0A5;
+  --ink-faint: #7E8279; --rust: #E08050; --moss: #7FB79A; --gold: #D9B356;
+  --line: #2C3230; --code-bg: #151A18; --mark: #3A3220;
+  --shadow: 0 1px 0 rgba(0,0,0,.5), 0 18px 40px -28px rgba(0,0,0,.9);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 16px/1.65 ui-sans-serif, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection { background: var(--mark); color: var(--ink); }
+
+.serif { font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
+.mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+
+/* ------------------------------------------------------------------- the spine */
+.spine {
+  position: fixed; inset: 0 auto 0 0; width: 76px;
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 22px 0; gap: 18px; z-index: 40;
+  background: var(--paper);
+}
+.spine__mark { width: 30px; height: 30px; flex: none; }
+.spine__mark rect { fill: var(--ink); }
+.spine__mark path { stroke: var(--gold); }
+.spine__word {
+  writing-mode: vertical-rl; text-orientation: mixed;
+  letter-spacing: .34em; text-transform: uppercase;
+  font: 500 10px/1 ui-monospace, monospace; color: var(--ink-faint);
+  margin-top: 4px;
+}
+.spine__rule { flex: 1; width: 1px; background: var(--line); }
+.spine__theme {
+  width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%;
+  background: transparent; color: var(--ink-soft); cursor: pointer;
+  display: grid; place-items: center; font-size: 13px;
+}
+.spine__theme:hover { border-color: var(--ink-faint); color: var(--ink); }
+
+.shell { margin-left: 76px; }
+@media (max-width: 760px) {
+  .spine { position: static; width: auto; flex-direction: row; height: 56px; padding: 0 16px; }
+  .spine__word { writing-mode: horizontal-tb; letter-spacing: .2em; }
+  .spine__rule { flex: 1; height: 1px; width: auto; }
+  .shell { margin-left: 0; }
+}
+
+/* -------------------------------------------------------------------- the hero */
+.hero { position: relative; padding: 76px 7vw 0; overflow: hidden; }
+.hero__inner { max-width: 1120px; }
+.eyebrow {
+  font: 500 11px/1 ui-monospace, monospace; letter-spacing: .28em;
+  text-transform: uppercase; color: var(--rust); margin: 0 0 26px;
+}
+h1 {
+  margin: 0; font-family: ui-serif, "Iowan Old Style", Palatino, Georgia, serif;
+  font-size: clamp(56px, 11vw, 132px); line-height: .88; letter-spacing: -.035em;
+  font-weight: 400;
+}
+h1 em { font-style: italic; color: var(--moss); }
+.hero__lede {
+  max-width: 46ch; margin: 30px 0 0; font-size: clamp(17px, 2vw, 20px);
+  line-height: 1.55; color: var(--ink-soft);
+}
+.hero__lede b { color: var(--ink); font-weight: 600; }
+.hero__actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 34px 0 0; }
+.btn {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 12px 20px; border-radius: 2px; text-decoration: none;
+  font: 500 13px/1 ui-monospace, monospace; letter-spacing: .04em;
+  border: 1px solid var(--ink); color: var(--paper); background: var(--ink);
+}
+.btn:hover { background: var(--moss); border-color: var(--moss); color: #F2EFE7; }
+.btn--ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn--ghost:hover { background: transparent; border-color: var(--ink); color: var(--ink); }
+
+/* The strata band: horizontal rules that thin out as they compress. */
+.strata { margin: 64px 0 0; }
+.strata__row {
+  display: flex; align-items: center; gap: 18px;
+  border-top: 1px solid var(--line); padding: 11px 0;
+  font: 400 12px/1 ui-monospace, monospace; color: var(--ink-faint);
+}
+.strata__row:last-child { border-bottom: 1px solid var(--line); }
+.strata__row b { color: var(--ink); font-weight: 600; letter-spacing: .04em; }
+.strata__bar { height: 6px; background: var(--ink); border-radius: 1px; }
+.strata__bar--thin { background: var(--rust); }
+.strata__num { margin-left: auto; color: var(--ink-soft); }
+
+/* ------------------------------------------------------------------- sections */
+section { padding: 88px 7vw; }
+.wrap { max-width: 1120px; }
+section + section { border-top: 1px solid var(--line); }
+h2 {
+  margin: 0 0 8px; font-family: ui-serif, Georgia, serif; font-weight: 400;
+  font-size: clamp(28px, 3.6vw, 44px); letter-spacing: -.02em; line-height: 1.1;
+}
+h2 .num {
+  display: block; font: 400 11px/1 ui-monospace, monospace; letter-spacing: .3em;
+  color: var(--rust); margin-bottom: 16px;
+}
+.sub { margin: 0 0 40px; max-width: 62ch; color: var(--ink-soft); }
+
+/* The two-column rhythm: a narrow label column, then the content. */
+.pair { display: grid; grid-template-columns: 172px 1fr; gap: 34px; align-items: start; }
+@media (max-width: 880px) { .pair { grid-template-columns: 1fr; gap: 16px; } }
+.pair__label {
+  font: 500 11px/1.7 ui-monospace, monospace; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-faint); padding-top: 6px;
+}
+.pair + .pair { margin-top: 44px; padding-top: 44px; border-top: 1px dashed var(--line); }
+
+/* --------------------------------------------------------------------- tables */
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 12px 14px 12px 0; vertical-align: top; }
+thead th {
+  font: 500 10px/1 ui-monospace, monospace; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--ink-faint);
+  border-bottom: 1px solid var(--ink); padding-bottom: 10px;
+}
+tbody tr { border-bottom: 1px solid var(--line); }
+tbody tr:hover { background: var(--paper-deep); }
+td.mono, th.mono { font-family: ui-monospace, monospace; font-size: 12.5px; }
+.pill {
+  display: inline-block; padding: 2px 8px; border-radius: 2px;
+  font: 500 10px/1.7 ui-monospace, monospace; letter-spacing: .1em;
+  text-transform: uppercase; border: 1px solid currentColor;
+}
+.pill--yes { color: var(--moss); }
+.pill--part { color: var(--gold); }
+.pill--plan { color: var(--ink-faint); }
+.tnote { font-size: 12px; color: var(--ink-faint); margin-top: 10px; }
+
+/* ------------------------------------------------------------------------ code */
+pre {
+  margin: 0; padding: 22px 24px; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: 2px; overflow-x: auto;
+  font: 400 13px/1.72 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  tab-size: 2;
+}
+code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .94em; }
+p code, li code, td code {
+  background: var(--code-bg); padding: 1px 5px; border-radius: 2px;
+  border: 1px solid var(--line);
+}
+.tok-k { color: var(--rust); }
+.tok-s { color: var(--moss); }
+.tok-c { color: var(--ink-faint); font-style: italic; }
+.tok-t { color: var(--gold); }
+.code-head {
+  display: flex; align-items: center; gap: 10px;
+  font: 500 10px/1 ui-monospace, monospace; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px;
+}
+.code-head span { flex: 1; height: 1px; background: var(--line); }
+
+/* ------------------------------------------------------------------ playground */
+.play { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+@media (max-width: 780px) { .play { grid-template-columns: 1fr; } }
+.play__cell { background: var(--paper); padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.play__label {
+  font: 500 10px/1 ui-monospace, monospace; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--ink-faint);
+}
+textarea {
+  width: 100%; min-height: 132px; resize: vertical; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink); padding: 12px; border-radius: 2px;
+  font: 400 13px/1.6 ui-monospace, monospace;
+}
+textarea:focus { outline: 2px solid var(--moss); outline-offset: -1px; }
+.play__row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip {
+  border: 1px solid var(--line); background: transparent; color: var(--ink-soft);
+  padding: 7px 13px; border-radius: 2px; cursor: pointer;
+  font: 500 11px/1 ui-monospace, monospace; letter-spacing: .08em;
+}
+.chip[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); background: var(--paper-deep); }
+.meter { font: 400 12px/1.9 ui-monospace, monospace; color: var(--ink-soft); }
+.meter b { color: var(--ink); font-weight: 600; }
+.meter i { color: var(--moss); font-style: normal; }
+
+/* ---------------------------------------------------------------------- lists */
+ul.plain { list-style: none; margin: 0; padding: 0; }
+ul.plain li {
+  padding: 13px 0 13px 26px; border-bottom: 1px solid var(--line);
+  position: relative; color: var(--ink-soft); font-size: 14.5px;
+}
+ul.plain li:first-child { border-top: 1px solid var(--line); }
+ul.plain li::before {
+  content: ""; position: absolute; left: 0; top: 21px;
+  width: 12px; height: 1px; background: var(--rust);
+}
+ul.plain li b { color: var(--ink); font-weight: 600; }
+
+/* --------------------------------------------------------------------- footer */
+footer {
+  padding: 54px 7vw 70px; border-top: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 18px 40px; align-items: baseline;
+  font: 400 12px/1.8 ui-monospace, monospace; color: var(--ink-faint);
+}
+footer b { color: var(--ink); font-weight: 600; }
+footer a { color: var(--ink-soft); text-decoration: none; border-bottom: 1px solid var(--line); }
+footer a:hover { color: var(--ink); border-color: var(--ink); }
+</style>
+</head>
+<body>
+
+<nav class="spine" aria-label="Site">
+  <svg class="spine__mark" viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32"></rect>
+    <path d="M6 10h20M6 16h14M6 22h20" fill="none" stroke-width="3"></path>
+  </svg>
+  <span class="spine__word">moonzip</span>
+  <span class="spine__rule"></span>
+  <button class="spine__theme" id="theme" title="Switch theme" aria-label="Switch theme">◐</button>
+</nav>
+
+<div class="shell">
+
+<header class="hero">
+  <div class="hero__inner">
+    <p class="eyebrow">MoonBit · compression</p>
+    <h1>Write bytes.<br><em>Read them back.</em></h1>
+    <p class="hero__lede">
+      Seven formats, one per package, each with the interface its own specification
+      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy</b> — readers that
+      check what they read, writers that stream, and no dependency beyond
+      <code>moonbase</code>.
+    </p>
+    <div class="hero__actions">
+      <a class="btn" href="#start">Start reading</a>
+      <a class="btn btn--ghost" href="#formats">The formats</a>
+      <a class="btn btn--ghost" href="#api">Interfaces</a>
+    </div>
+
+    <div class="strata" aria-label="Compressed sizes of one 184 KB body">
+      <div class="strata__row"><b>raw</b><span class="strata__bar" style="width:56%"></span><span class="strata__num">184,000 B</span></div>
+      <div class="strata__row"><b>snappy</b><span class="strata__bar strata__bar--thin" style="width:19%"></span><span class="strata__num">9,884 B</span></div>
+      <div class="strata__row"><b>zlib</b><span class="strata__bar strata__bar--thin" style="width:12%"></span><span class="strata__num">2,667 B</span></div>
+      <div class="strata__row"><b>deflate</b><span class="strata__bar strata__bar--thin" style="width:12%"></span><span class="strata__num">2,661 B</span></div>
+      <div class="strata__row"><b>lz4</b><span class="strata__bar strata__bar--thin" style="width:11%"></span><span class="strata__num">1,997 B</span></div>
+      <div class="strata__row"><b>gzip</b><span class="strata__bar strata__bar--thin" style="width:11%"></span><span class="strata__num">1,983 B</span></div>
+    </div>
+    <p class="tnote">
+      One body — 184,000 bytes of English text with a periodic tail — compressed by
+      each format, printed by <code>examples/stream</code>. The bars are compressed
+      on a square-root scale, or the fast formats would be invisible. That lz4
+      beats DEFLATE here is the body's fault, not lz4's: four thousand repetitions
+      of one sentence are exactly what a two-byte back-reference is for.
+    </p>
+  </div>
+</header>
+
+<section id="start">
+  <div class="wrap">
+    <h2><span class="num">01 — Install</span>Three lines, then a stream.</h2>
+    <p class="sub">
+      Every package is named after the format it implements. Add the module, import
+      the package you need, and the function names are the ones the specification
+      uses — <code>gzip</code>, <code>gunzip</code>, <code>tar</code>,
+      <code>untar</code>.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">moon.mod</div>
+      <pre><span class="tok-k">import</span> { <span class="tok-s">"moonbitstack/moonzip"</span> }</pre>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">a gzip round trip</div>
+<pre><span class="tok-k">let</span> packed = @gzip.gzip(b<span class="tok-s">"the body"</span>[:])
+<span class="tok-k">let</span> back   = @gzip.gunzip(packed[:])</pre>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">a body that arrives in pieces</div>
+<pre><span class="tok-c">// Nothing is held whole: the only state between calls is the 32 KiB window
+// the compressor needs and four bytes of running checksum.</span>
+<span class="tok-k">let</span> writer = @gzip.Writer::new(level=<span class="tok-t">9</span>)
+<span class="tok-k">for</span> part <span class="tok-k">in</span> parts {
+  <span class="tok-k">for</span> b <span class="tok-k">in</span> writer.push(part) { out.push(b) }
+}
+<span class="tok-k">for</span> b <span class="tok-k">in</span> writer.finish() { out.push(b) }</pre>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">an archive</div>
+<pre><span class="tok-k">let</span> archive = @zip.zip([
+  @zip.Entry::new(<span class="tok-s">"readme.txt"</span>, body),
+  @zip.Entry::new(<span class="tok-s">"data/table.csv"</span>, table),
+][:])
+
+<span class="tok-c">// or the same thing, one member at a time</span>
+<span class="tok-k">let</span> w = @zip.Writer::new(password=<span class="tok-s">"a password"</span>)
+w.add(entry)   <span class="tok-c">// returns that member's bytes now</span>
+w.finish()     <span class="tok-c">// returns the directory at the end</span></pre>
+    </div>
+  </div>
+</section>
+
+<section id="formats">
+  <div class="wrap">
+    <h2><span class="num">02 — The formats</span>What is here, and what is not.</h2>
+    <p class="sub">
+      A format is either implemented or it is not; there is no "mostly". The table
+      says which of the two, and the notes say what the hard part was. Nothing in
+      the library is a stub that returns its input.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Package</th><th>Specification</th><th>Read</th><th>Write</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">deflate</td><td class="mono">RFC 1951</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>All three block types, both ways. The writer measures fixed, dynamic and stored per block and keeps the smallest.</td>
+        </tr>
+        <tr>
+          <td class="mono">gzip</td><td class="mono">RFC 1952</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Header fields, the header's own CRC, the trailing CRC-32 and length. Streaming via <code>Writer</code>/<code>Reader</code>.</td>
+        </tr>
+        <tr>
+          <td class="mono">zlib</td><td class="mono">RFC 1950</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Adler-32, the window the header names, the check bits.</td>
+        </tr>
+        <tr>
+          <td class="mono">zip</td><td class="mono">APPNOTE 6.3</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Zip64, data descriptors, ZipCrypto, a reader that walks local headers from the front. AES is not implemented; it is the one gap and it is named here rather than discovered later.</td>
+        </tr>
+        <tr>
+          <td class="mono">tar</td><td class="mono">POSIX pax</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>ustar, pax extended headers, GNU long names on read. Symbolic links, directories, base-256 numbers. <code>targz</code> is the archive through gzip.</td>
+        </tr>
+        <tr>
+          <td class="mono">lz4</td><td class="mono">block + frame</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Both formats, with xxHash-32 for the header and content checksums and skippable frames stepped over.</td>
+        </tr>
+        <tr>
+          <td class="mono">snappy</td><td class="mono">block + framing v2</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Both formats, masked CRC-32C per chunk, skippable and unskippable chunk ranges both honoured.</td>
+        </tr>
+        <tr>
+          <td class="mono">brotli</td><td class="mono">RFC 7932</td>
+          <td><span class="pill pill--plan">planned</span></td><td><span class="pill pill--plan">planned</span></td>
+          <td>Next. The static dictionary and the context modelling are the whole of the work; a partial decoder would read most streams and silently misread the rest.</td>
+        </tr>
+        <tr>
+          <td class="mono">zstd</td><td class="mono">RFC 8878</td>
+          <td><span class="pill pill--plan">planned</span></td><td><span class="pill pill--plan">planned</span></td>
+          <td>Next. FSE tables and the sequence encoding; the frame layer alone is not a decoder.</td>
+        </tr>
+        <tr>
+          <td class="mono">xz · 7z</td><td class="mono">xz, APPNOTE 7z</td>
+          <td><span class="pill pill--plan">planned</span></td><td><span class="pill pill--plan">planned</span></td>
+          <td>Both rest on LZMA2, which is where the work is. 7z is a container over codecs, so it follows LZMA rather than preceding it.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="tnote">
+      A format that is not implemented is refused by name, with the method number,
+      rather than guessed at. <code>zip</code> takes a <code>Codec</code> so a
+      method a caller has implemented elsewhere can be plugged in without an edit
+      to the package.
+    </p>
+  </div>
+</section>
+
+<section id="stream">
+  <div class="wrap">
+    <h2><span class="num">03 — Streaming</span>The body never has to be in one piece.</h2>
+    <p class="sub">
+      A response body arrives in chunks. A file is read four kilobytes at a time. A
+      streaming interface means the caller never has to gather the whole thing, and
+      the only state kept between calls is the window a back-reference can reach.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">the shape</div>
+<pre><span class="tok-c">// compressor</span>
+w.push(chunk)   <span class="tok-c">→ the bytes that are ready (maybe none)</span>
+w.finish()      <span class="tok-c">→ the rest, plus the trailer</span>
+
+<span class="tok-c">// decompressor</span>
+r.push(chunk)   <span class="tok-c">→ the bytes it decoded, possibly across a symbol</span>
+r.finish()      <span class="tok-c">→ the rest, and the trailer is checked here</span></pre>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">what a chunk boundary may fall inside</div>
+      <ul class="plain">
+        <li><b>A header field.</b> Status lines, file names, pax records. The reader gathers until the header is complete, with a bound so a stream that never ends is refused rather than buffered forever.</li>
+        <li><b>A Huffman code.</b> The decoder never consumes half a symbol and waits: eight bytes of buffered input cover the widest step, and with fewer than that it stops.</li>
+        <li><b>A stored block.</b> The payload is copied straight out of the buffer, and a chunk boundary in the middle of one is ordinary.</li>
+        <li><b>A data descriptor.</b> When an entry's sizes follow its data, the DEFLATE stream itself says where it ended, and the descriptor is read from there.</li>
+      </ul>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">what the tests do</div>
+      <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
+        Every streaming test feeds the same body in one, two, three, five, seven,
+        thirteen, sixty-four, five-hundred-and-eleven, four-thousand-and-ninety-six
+        and sixty-five-thousand-five-hundred-and-thirty-six byte pieces, and
+        requires the same bytes out each time. The boundaries that break a naive
+        decoder are never the round ones.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="play">
+  <div class="wrap">
+    <h2><span class="num">04 — In the browser</span>DEFLATE, where you can watch it.</h2>
+    <p class="sub">
+      Browsers carry the same algorithm this library implements. Type something and
+      compress it with the platform's own DEFLATE — the numbers are the ones the
+      format actually produces, not a simulation.
+    </p>
+
+    <div class="play">
+      <div class="play__cell">
+        <label class="play__label" for="input">input</label>
+        <textarea id="input" spellcheck="false">the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog.</textarea>
+        <div class="play__row">
+          <button class="chip" data-format="deflate-raw" aria-pressed="true">deflate</button>
+          <button class="chip" data-format="gzip" aria-pressed="false">gzip</button>
+          <button class="chip" data-format="deflate" aria-pressed="false">zlib</button>
+        </div>
+      </div>
+      <div class="play__cell">
+        <span class="play__label">compressed, then read back</span>
+        <div class="meter" id="meter">press compress</div>
+        <div class="play__row" style="margin-top:auto">
+          <button class="chip" id="run" style="border-color:var(--ink);color:var(--ink)">compress</button>
+        </div>
+      </div>
+    </div>
+    <p class="tnote" id="play-note">
+      Runs in your browser through <code>CompressionStream</code>. No input leaves
+      this page.
+    </p>
+  </div>
+</section>
+
+<section id="api">
+  <div class="wrap">
+    <h2><span class="num">05 — Interfaces</span>One page, every entry point.</h2>
+    <p class="sub">
+      The full interface is generated by <code>moon info</code> and lives beside
+      each package. This is the part a caller reads before writing anything.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Package</th><th>Function</th><th>Signature</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">root</td><td class="mono">crc32 · adler32 · crc32c</td><td class="mono">(BytesView) → UInt32</td><td>And <code>Crc</code>, <code>Adler</code>, <code>Castagnoli</code> for a body taken a piece at a time.</td></tr>
+        <tr><td class="mono">root</td><td class="mono">mask_crc32c</td><td class="mono">(UInt32) → UInt32</td><td>The mask Snappy puts on a CRC before a frame carries it.</td></tr>
+        <tr><td class="mono">deflate</td><td class="mono">deflate</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, blocks~=Auto) → Bytes</td><td><code>Blocks</code> is <code>Auto</code>, <code>Fixed</code>, <code>Dynamic</code> or <code>Stored</code>.</td></tr>
+        <tr><td class="mono">deflate</td><td class="mono">inflate</td><td class="mono">(BytesView, limit?) → Bytes raise</td><td><code>Refused</code> carries the byte offset it gave up at.</td></tr>
+        <tr><td class="mono">deflate</td><td class="mono">Writer · Reader</td><td class="mono">push(BytesView) → Bytes · finish() → Bytes</td><td>The streaming pair the containers are built on.</td></tr>
+        <tr><td class="mono">gzip</td><td class="mono">gzip · gunzip</td><td class="mono">(BytesView, level~=6, mtime~=0, name?, comment?, os~=255) → Bytes</td><td>mtime is zero so the same input gives the same bytes.</td></tr>
+        <tr><td class="mono">gzip</td><td class="mono">Writer · Reader</td><td class="mono">new(level~, mtime~, name?, comment?, os~) · new(checksum~, length~, header_crc~, limit?)</td><td>Checks default on; a caller recovering a broken transfer turns them off.</td></tr>
+        <tr><td class="mono">zlib</td><td class="mono">zlib · unzlib</td><td class="mono">(BytesView, level~=6, window~=32768) → Bytes</td><td>The window goes in the header, so a reader learns it before it starts.</td></tr>
+        <tr><td class="mono">zip</td><td class="mono">zip</td><td class="mono">(ArrayView[Entry], level~, codecs~, zip64~, descriptor~, password?) → Bytes</td><td>Raises nothing: a writer has no input to distrust.</td></tr>
+        <tr><td class="mono">zip</td><td class="mono">unzip · names · entry</td><td class="mono">(BytesView, limit?, codecs~, password?) → Array[Entry]</td><td><code>names</code> reads the directory without expanding anything.</td></tr>
+        <tr><td class="mono">zip</td><td class="mono">Writer · Reader</td><td class="mono">add(Entry) → Bytes · finish() → Bytes</td><td>And <code>Reader::next</code> walks local headers, descriptors and all.</td></tr>
+        <tr><td class="mono">tar</td><td class="mono">tar · untar · names</td><td class="mono">(ArrayView[Entry]) → Bytes</td><td><code>Entry</code> carries mode, mtime, uid, gid, uname, gname and the link target.</td></tr>
+        <tr><td class="mono">tar</td><td class="mono">targz · untargz</td><td class="mono">(ArrayView[Entry], level~=6) → Bytes</td><td>A tarball is the archive through gzip, which is all <code>.tar.gz</code> ever was.</td></tr>
+        <tr><td class="mono">lz4</td><td class="mono">lz4 · unlz4</td><td class="mono">(BytesView, level~=0) → Bytes</td><td>The block format. <code>level</code> is the search depth; 0 is LZ4's own fast mode.</td></tr>
+        <tr><td class="mono">lz4</td><td class="mono">frame · unframe</td><td class="mono">(BytesView) → Bytes</td><td>Blocks with a header, a content xxHash and skippable-frame support.</td></tr>
+        <tr><td class="mono">lz4</td><td class="mono">xxh32</td><td class="mono">(BytesView, seed~=0) → UInt32</td><td>Published vectors, including the two that catch a wrong rotation.</td></tr>
+        <tr><td class="mono">snappy</td><td class="mono">snappy · unsnappy</td><td class="mono">(BytesView) → Bytes</td><td>The block format, with the length in front as a varint.</td></tr>
+        <tr><td class="mono">snappy</td><td class="mono">frame · unframe</td><td class="mono">(BytesView, checksum~=true, limit?) → Bytes</td><td>Masked CRC-32C per chunk; skippable ranges honoured.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="pair" style="margin-top:44px">
+      <div class="pair__label">errors</div>
+<pre><span class="tok-k">pub(all)</span> <span class="tok-k">suberror</span> Refused {
+  Truncated(at~ : Int32)                   <span class="tok-c">// ends in the middle of something</span>
+  Header(at~ : Int32, what~ : String)      <span class="tok-c">// a field the format does not allow</span>
+  Code(at~ : Int32)                        <span class="tok-c">// a code no symbol is assigned to</span>
+  Distance(at~ : Int32)                    <span class="tok-c">// a back-reference before the start</span>
+  Checksum(want~ : UInt32, got~ : UInt32)
+  Length(want~ : UInt32, got~ : Int32)
+  TooBig(limit~ : Int32)                   <span class="tok-c">// the caller's own bound</span>
+}</pre>
+    </div>
+  </div>
+</section>
+
+<section id="proof">
+  <div class="wrap">
+    <h2><span class="num">06 — Proof</span>Agreeing with itself is not enough.</h2>
+    <p class="sub">
+      A compressor that only ever reads its own output can be consistently wrong
+      for years. Two scripts make that impossible to get away with, and CI runs
+      both on every push.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">others read what we write</div>
+      <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
+        <code>scripts/conformance.py</code> takes every stream
+        <code>examples/vectors</code> prints and hands it to Python's
+        <code>zlib</code>, <code>gzip</code> and <code>zipfile</code>. Every
+        combination of level, block type, chunk size, Zip64, descriptor and
+        password has to come back as the body it started from.
+      </p>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">we read what others write</div>
+      <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
+        <code>scripts/interop.py</code> writes archives with Python's
+        <code>zipfile</code> and <code>tarfile</code> — the plain form, one with
+        data descriptors because the sink it wrote to could not seek, a forced
+        Zip64 header, and tar in ustar, pax and GNU — and pins them as tests. They
+        are the shapes our own writer would never produce.
+      </p>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">the gate</div>
+      <ul class="plain">
+        <li><b>moon check --target all --deny-warn</b> — four backends, and a warning is an error.</li>
+        <li><b>moon test --target all</b> — the same tests on wasm, wasm-gc, js and native.</li>
+        <li><b>moon fmt</b>, then <code>git diff --exit-code</code> — formatting is not a matter of taste here.</li>
+        <li><b>moon info</b>, then <code>git diff --exit-code</code> — the interface is checked in, so a change to it shows up in the diff.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span><b>moonzip</b> — Apache-2.0</span>
+  <span>Leo Cheng</span>
+  <span><a href="https://github.com/moonbitstack/moonzip">github.com/moonbitstack/moonzip</a></span>
+  <span style="margin-left:auto">Built for MoonBit. No dependencies beyond <code>moonbase</code>.</span>
+</footer>
+
+</div>
+
+<script>
+// ------------------------------------------------------------------- the theme
+(function () {
+  const html = document.documentElement;
+  const saved = localStorage.getItem("moonzip-theme");
+  if (saved) html.dataset.theme = saved;
+  document.getElementById("theme").addEventListener("click", () => {
+    const now = html.dataset.theme === "dark" ? "light"
+      : html.dataset.theme === "light" ? "dark"
+      : (matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark");
+    html.dataset.theme = now;
+    localStorage.setItem("moonzip-theme", now);
+  });
+})();
+
+// -------------------------------------------------------------- the playground
+(function () {
+  const input = document.getElementById("input");
+  const meter = document.getElementById("meter");
+  const note = document.getElementById("play-note");
+  const run = document.getElementById("run");
+  let format = "deflate-raw";
+
+  document.querySelectorAll(".chip[data-format]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      format = chip.dataset.format;
+      document.querySelectorAll(".chip[data-format]").forEach((other) => {
+        other.setAttribute("aria-pressed", String(other === chip));
+      });
+    });
+  });
+
+  async function squeeze(bytes, how) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream(how));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  async function expand(bytes, how) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(how));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  run.addEventListener("click", async () => {
+    if (typeof CompressionStream === "undefined") {
+      meter.textContent = "this browser has no CompressionStream";
+      return;
+    }
+    const raw = new TextEncoder().encode(input.value);
+    try {
+      const packed = await squeeze(raw, format);
+      const back = await expand(packed, format);
+      const same = back.length === raw.length && back.every((b, i) => b === raw[i]);
+      const ratio = raw.length ? (100 - (packed.length * 100) / raw.length) : 0;
+      meter.innerHTML =
+        "in <b>" + raw.length + "</b> B · out <b>" + packed.length + "</b> B" +
+        " · <i>" + ratio.toFixed(1) + "% smaller</i><br>" +
+        "read back to <b>" + back.length + "</b> B · " +
+        (same ? "<i>identical</i>" : "<b>different</b>");
+    } catch (why) {
+      meter.textContent = "failed: " + why.message;
+    }
+  });
+})();
+</script>
+</body>
+</html>

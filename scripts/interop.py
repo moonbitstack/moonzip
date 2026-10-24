@@ -199,7 +199,7 @@ def write_tar():
         ("gnu", build_tar(tarfile.GNU_FORMAT)),
     ]
     arms = "\n".join(
-        '  if name == "{}" {{\n    return @base16.decode_lossy("{}")\n  }}'.format(
+        '  if name == "{}" {{\n    return @base16.decode_lossy(\n      "{}",\n    )\n  }}'.format(
             name, blob.hex()
         )
         for name, blob in shapes
@@ -217,7 +217,7 @@ def main():
         ("wide", build(zip64=True)),
     ]
     arms = "\n".join(
-        '  if name == "{}" {{\n    return @base16.decode_lossy("{}")\n  }}'.format(
+        '  if name == "{}" {{\n    return @base16.decode_lossy(\n      "{}",\n    )\n  }}'.format(
             name, blob.hex()
         )
         for name, blob in shapes

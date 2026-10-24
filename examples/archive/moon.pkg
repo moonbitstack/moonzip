@@ -1,0 +1,7 @@
+// Archives a member at a time: `moon run examples/archive`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/tar",
+  "moonbitstack/moonzip/zip",
+}
