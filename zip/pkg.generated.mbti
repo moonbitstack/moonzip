@@ -7,15 +7,19 @@ import {
 }
 
 // Values
-pub fn entry(BytesView, String, limit? : Int32, codecs? : ArrayView[&Codec]) -> Entry? raise @moonzip.Refused
+pub fn entry(BytesView, String, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Entry? raise @moonzip.Refused
 
 pub let level : Int32
 
 pub fn names(BytesView) -> Array[String] raise @moonzip.Refused
 
-pub fn unzip(BytesView, limit? : Int32, codecs? : ArrayView[&Codec]) -> Array[Entry] raise @moonzip.Refused
+pub fn unzip(BytesView, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Array[Entry] raise @moonzip.Refused
 
-pub fn zip(ArrayView[Entry], level? : Int32, codecs? : ArrayView[&Codec]) -> Bytes
+pub fn zip(ArrayView[Entry], level? : Int32, codecs? : ArrayView[&Codec], zip64? : Bool, descriptor? : Bool, password? : String) -> Bytes
+
+pub fn zipcrypt_decrypt(BytesView, String, Byte) -> Bytes raise @moonzip.Refused
+
+pub fn zipcrypt_encrypt(BytesView, String, String, Int64, Byte) -> Bytes
 
 // Errors
 
@@ -40,6 +44,15 @@ pub(all) enum Kind {
 pub fn Kind::equal(Self, Self) -> Bool
 pub fn Kind::not_equal(Self, Self) -> Bool
 pub fn Kind::to_repr(Self) -> @debug.Repr
+
+type Reader
+pub fn Reader::new(BytesView) -> Self
+pub fn Reader::next(Self, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Entry? raise @moonzip.Refused
+
+type Writer
+pub fn Writer::add(Self, Entry, codecs? : ArrayView[&Codec]) -> Bytes
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32, zip64? : Bool, descriptor? : Bool, password? : String) -> Self
 
 // Type aliases
 

@@ -225,108 +225,48 @@ fn unix_time(time : Int32, date : Int32) -> Int64 {
 /// their bytes unchanged. An entry that deflates to no less than it started as
 /// is stored instead, which is what `zip` itself does: a member should never
 /// grow by being compressed.
+///
+/// `zip64`, `descriptor` and `password` are the [`Writer`](#Writer)'s knobs, and
+/// they mean the same thing here. This function is that writer with every entry
+/// in hand at once.
 pub fn zip(
   entries : ArrayView[Entry],
   level~ : Int32 = level,
   codecs~ : ArrayView[&Codec] = [],
+  zip64~ : Bool = false,
+  descriptor~ : Bool = false,
+  password? : String,
 ) -> Bytes {
+  let writer = Writer::new(level~, zip64~, descriptor~, password?)
   let out : Array[Byte] = []
-  let offsets : Array[Int32] = []
-  let stored : Array[Bytes] = []
-  let kinds : Array[Kind] = []
-  let sums : Array[UInt32] = []
   for entry in entries {
-    offsets.push(out.length())
-    let sum = @moonzip.crc32(entry.data[:])
-    let (packed, how) = match entry.kind {
-      Stored => (entry.data, Kind::Stored)
-      Deflated => {
-        let made = @deflate.deflate(entry.data[:], level~)
-        if made.length() < entry.data.length() {
-          (made, Kind::Deflated)
-        } else {
-          (entry.data, Kind::Stored)
-        }
-      }
-      Other(id) =>
-        match pick(codecs, id) {
-          Some(codec) => (codec.pack(entry.data[:]), Kind::Other(id))
-          None => abort("zip: no codec for compression method \{id}")
-        }
-    }
-    stored.push(packed)
-    kinds.push(how)
-    sums.push(sum)
-    let name = @utf8.encode(entry.name[:])
-    let (time, date) = dos_time(entry.mtime)
-    le32(out, 0x04034B50U)
-    // Version 2.0 is what DEFLATE needs; the flag bit says the name is UTF-8.
-    le16(out, 20)
-    le16(out, 0x0800)
-    le16(out, number(how))
-    le16(out, time)
-    le16(out, date)
-    le32(out, sum)
-    le32(out, packed.length().reinterpret_as_uint())
-    le32(out, entry.data.length().reinterpret_as_uint())
-    le16(out, name.length())
-    le16(out, 0)
-    for b in name {
-      out.push(b)
-    }
-    for b in packed {
+    for b in writer.add(entry, codecs~) {
       out.push(b)
     }
   }
-  let directory = out.length()
-  for i, entry in entries {
-    let name = @utf8.encode(entry.name[:])
-    let comment = @utf8.encode(entry.comment[:])
-    let (time, date) = dos_time(entry.mtime)
-    le32(out, 0x02014B50U)
-    le16(out, 20)
-    le16(out, 20)
-    le16(out, 0x0800)
-    le16(out, number(kinds[i]))
-    le16(out, time)
-    le16(out, date)
-    le32(out, sums[i])
-    le32(out, stored[i].length().reinterpret_as_uint())
-    le32(out, entry.data.length().reinterpret_as_uint())
-    le16(out, name.length())
-    le16(out, 0)
-    le16(out, comment.length())
-    le16(out, 0)
-    le16(out, 0)
-    le32(out, 0U)
-    le32(out, offsets[i].reinterpret_as_uint())
-    for b in name {
-      out.push(b)
-    }
-    for b in comment {
-      out.push(b)
-    }
+  for b in writer.finish() {
+    out.push(b)
   }
-  let size = out.length() - directory
-  le32(out, 0x06054B50U)
-  le16(out, 0)
-  le16(out, 0)
-  le16(out, entries.length())
-  le16(out, entries.length())
-  le32(out, size.reinterpret_as_uint())
-  le32(out, directory.reinterpret_as_uint())
-  le16(out, 0)
   Bytes::from_array(out)
 }
 
+// -------------------------------------------------------------- the directory
+
 ///|
-/// Where the end-of-central-directory record begins.
+/// The end record, and the Zip64 one behind it if there is one.
 ///
-/// It is at the end, but an archive may carry a comment after it, so the search
-/// runs backwards over the 64 KiB a comment's two-byte length can reach. A
-/// reader that only looks at the last 22 bytes fails on every archive with a
-/// comment.
-fn end_record(archive : BytesView) -> Int32 raise @moonzip.Refused {
+/// The classic record is at the end, but an archive may carry a comment after
+/// it, so the search runs backwards over the 64 KiB a comment's two-byte length
+/// can reach. When any count or offset outgrew thirty-two bits the classic
+/// record holds sentinels and the real numbers are in the Zip64 record, which
+/// a locator fixed twenty bytes before the classic one points at.
+priv struct End {
+  count : Int64
+  start : Int64
+}
+
+///|
+fn end_record(archive : BytesView) -> End raise @moonzip.Refused {
   let least = 22
   guard archive.length() >= least else {
     raise @moonzip.Header(at=0, what="shorter than a zip end record")
@@ -336,10 +276,32 @@ fn end_record(archive : BytesView) -> Int32 raise @moonzip.Refused {
   } else {
     0
   }
-  for at = archive.length() - least; at >= floor; at = at - 1 {
+  let mut at = archive.length() - least
+  while at >= floor {
     if read32(archive, at) == 0x06054B50U {
-      return at
+      let mut count = read16(archive, at + 10).to_int64()
+      let mut start = read32(archive, at + 16).to_int64()
+      if (count == 0xFFFFL || start == 0xFFFFFFFFL) && at >= 20 {
+        if read32(archive, at - 20) == 0x07064B50U {
+          let wide = read64(archive, at - 20 + 8)
+          if wide >= 0L && wide + 56 <= archive.length().to_int64() {
+            let base = wide.to_int()
+            if read32(archive, base) == 0x06064B50U {
+              count = read64(archive, base + 32)
+              start = read64(archive, base + 48)
+            }
+          }
+        }
+      }
+      guard start >= 0L && start <= archive.length().to_int64() else {
+        raise @moonzip.Header(
+          at=at + 16,
+          what="a central directory outside the archive",
+        )
+      }
+      return { count, start }
     }
+    at = at - 1
   }
   raise @moonzip.Header(
     at=archive.length(),
@@ -353,33 +315,28 @@ priv struct Listed {
   name : String
   how : Int32
   sum : UInt32
-  packed : Int32
+  packed : Int64
+  unpacked : Int64
   mtime : Int64
   comment : String
-  at : Int32
+  at : Int64
+  flags : Int32
 }
 
 ///|
 /// Walk the central directory.
 fn directory(archive : BytesView) -> Array[Listed] raise @moonzip.Refused {
   let end = end_record(archive)
-  let count = read16(archive, end + 10)
-  let start = read32(archive, end + 16).reinterpret_as_int()
-  guard start >= 0 && start <= archive.length() else {
-    raise @moonzip.Header(
-      at=end + 16,
-      what="a central directory outside the archive",
-    )
-  }
   let out : Array[Listed] = []
-  let mut at = start
-  for _ in 0..<count {
+  let mut at = end.start.to_int()
+  for _ in 0..<end.count.to_int() {
     guard at + 46 <= archive.length() && read32(archive, at) == 0x02014B50U else {
       raise @moonzip.Header(
         at~,
         what="a central directory entry without its signature",
       )
     }
+    let flags = read16(archive, at + 8)
     let name_len = read16(archive, at + 28)
     let extra_len = read16(archive, at + 30)
     let comment_len = read16(archive, at + 32)
@@ -387,11 +344,51 @@ fn directory(archive : BytesView) -> Array[Listed] raise @moonzip.Refused {
     guard head + name_len + extra_len + comment_len <= archive.length() else {
       raise @moonzip.Truncated(at~)
     }
+    let extra = archive[head + name_len:head + name_len + extra_len]
+    let mut packed = read32(archive, at + 20).to_int64()
+    let mut unpacked = read32(archive, at + 24).to_int64()
+    let mut offset = read32(archive, at + 42).to_int64()
+    if packed == 0xFFFFFFFFL || unpacked == 0xFFFFFFFFL || offset == 0xFFFFFFFFL {
+      // The field carries only the values whose four-byte home is a sentinel,
+      // in the order the specification lists them.
+      let wide = widen(extra)
+      if unpacked == 0xFFFFFFFFL {
+        match wide.unpacked {
+          Some(v) => unpacked = v
+          None =>
+            raise @moonzip.Header(
+              at=at + 24,
+              what="a size that is in no field this reader can see",
+            )
+        }
+      }
+      if packed == 0xFFFFFFFFL {
+        match wide.packed {
+          Some(v) => packed = v
+          None =>
+            raise @moonzip.Header(
+              at=at + 20,
+              what="a size that is in no field this reader can see",
+            )
+        }
+      }
+      if offset == 0xFFFFFFFFL {
+        match wide.offset {
+          Some(v) => offset = v
+          None =>
+            raise @moonzip.Header(
+              at=at + 42,
+              what="an offset that is in no field this reader can see",
+            )
+        }
+      }
+    }
     out.push({
       name: text(archive[head:head + name_len]),
       how: read16(archive, at + 10),
       sum: read32(archive, at + 16),
-      packed: read32(archive, at + 20).reinterpret_as_int(),
+      packed,
+      unpacked,
       mtime: unix_time(read16(archive, at + 12), read16(archive, at + 14)),
       comment: text(
         archive[head + name_len + extra_len:head +
@@ -399,7 +396,8 @@ fn directory(archive : BytesView) -> Array[Listed] raise @moonzip.Refused {
         extra_len +
         comment_len],
       ),
-      at: read32(archive, at + 42).reinterpret_as_int(),
+      at: offset,
+      flags,
     })
     at = head + name_len + extra_len + comment_len
   }
@@ -423,14 +421,51 @@ fn text(raw : BytesView) -> String {
 }
 
 ///|
+/// Expand one entry's payload, given how it is held and whether it is
+/// encrypted.
+fn unpack(
+  payload : BytesView,
+  how : Int32,
+  at : Int32,
+  limit : Int32?,
+  password : String?,
+  check : Byte,
+  codecs : ArrayView[&Codec],
+) -> Bytes raise @moonzip.Refused {
+  let plain = match password {
+    Some(secret) =>
+      if payload.length() == 0 {
+        raise @moonzip.Header(at~, what="an encrypted entry with no header")
+      } else {
+        zipcrypt_decrypt(payload, secret, check)
+      }
+    None => payload.to_owned()
+  }
+  match how {
+    0 => plain
+    8 => @deflate.inflate(plain[:], limit?)
+    other =>
+      match pick(codecs, other) {
+        Some(codec) => codec.unpack(plain[:], limit)
+        None =>
+          raise @moonzip.Header(
+            at~,
+            what="compression method \{other}, and no codec was supplied for it",
+          )
+      }
+  }
+}
+
+///|
 /// The content one listed entry names.
 fn content(
   archive : BytesView,
   listed : Listed,
   limit : Int32?,
+  password : String?,
   codecs : ArrayView[&Codec],
 ) -> Bytes raise @moonzip.Refused {
-  let at = listed.at
+  let at = listed.at.to_int()
   guard at >= 0 &&
     at + 30 <= archive.length() &&
     read32(archive, at) == 0x04034B50U else {
@@ -439,25 +474,28 @@ fn content(
   let name_len = read16(archive, at + 26)
   let extra_len = read16(archive, at + 28)
   let start = at + 30 + name_len + extra_len
-  guard start + listed.packed <= archive.length() else {
+  guard start.to_int64() + listed.packed <= archive.length().to_int64() else {
     raise @moonzip.Truncated(at=start)
   }
-  let packed = archive[start:start + listed.packed]
-  let data = match listed.how {
-    0 => packed.to_owned()
-    8 => @deflate.inflate(packed, limit?)
-    other =>
-      match pick(codecs, other) {
-        Some(codec) => codec.unpack(packed, limit)
-        None =>
-          raise @moonzip.Header(
-            at=at + 8,
-            what="compression method \{other}, and no codec was supplied for it",
-          )
-      }
+  let packed = archive[start:start + listed.packed.to_int()]
+  // With a data descriptor the local header cannot carry the checksum, and the
+  // byte that proves the password right came from the time instead.
+  let check = if (listed.flags & 0x0008) != 0 {
+    let (time, _) = dos_time(listed.mtime)
+    ((time >> 8) & 0xFF).to_byte()
+  } else {
+    ((listed.sum >> 24) & 0xFFU).to_byte()
   }
-  guard @moonzip.crc32(data[:]) == listed.sum else {
-    raise @moonzip.Checksum(want=listed.sum, got=@moonzip.crc32(data[:]))
+  let data = unpack(packed, listed.how, at + 8, limit, password, check, codecs)
+  if data.length().to_int64() != listed.unpacked {
+    raise @moonzip.Length(
+      want=listed.unpacked.to_int().reinterpret_as_uint(),
+      got=data.length(),
+    )
+  }
+  let got = @moonzip.crc32(data[:])
+  guard got == listed.sum else {
+    raise @moonzip.Checksum(want=listed.sum, got~)
   }
   data
 }
@@ -484,12 +522,13 @@ pub fn entry(
   name : String,
   limit? : Int32,
   codecs~ : ArrayView[&Codec] = [],
+  password? : String,
 ) -> Entry? raise @moonzip.Refused {
   for listed in directory(archive) {
     if listed.name == name {
       return Some({
         name: listed.name,
-        data: content(archive, listed, limit, codecs),
+        data: content(archive, listed, limit, password, codecs),
         kind: kind_of(listed.how),
         mtime: listed.mtime,
         comment: listed.comment,
@@ -509,12 +548,13 @@ pub fn unzip(
   archive : BytesView,
   limit? : Int32,
   codecs~ : ArrayView[&Codec] = [],
+  password? : String,
 ) -> Array[Entry] raise @moonzip.Refused {
   let out : Array[Entry] = []
   for listed in directory(archive) {
     out.push({
       name: listed.name,
-      data: content(archive, listed, limit, codecs),
+      data: content(archive, listed, limit, password, codecs),
       kind: kind_of(listed.how),
       mtime: listed.mtime,
       comment: listed.comment,

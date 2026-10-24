@@ -11,7 +11,9 @@ the half that cannot be pinned, because our encoder is allowed to improve and
 its bytes are allowed to change.
 """
 
+import io
 import sys
+import zipfile
 import zlib
 
 
@@ -44,6 +46,27 @@ def main():
         if not parts:
             continue
         form = parts[0]
+        if form == "zip":
+            kind, variant = int(parts[1]), int(parts[2])
+            blob = bytes.fromhex(parts[3])
+            password = b"moonzip" if variant == 3 else None
+            try:
+                with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                    names = archive.namelist()
+                    if names != ["first.txt", "dir/second.txt"]:
+                        raise ValueError("names are {}".format(names))
+                    first = archive.read("first.txt", pwd=password)
+                    second = archive.read("dir/second.txt", pwd=password)
+                    if second != b"the second member":
+                        raise ValueError("the second member is wrong")
+                if first != sample(kind):
+                    raise ValueError("the first member is wrong")
+                checked += 1
+                continue
+            except Exception as why:  # noqa: BLE001 - report, do not raise
+                failed += 1
+                print("FAIL zip {} variant={}: {}".format(kind, variant, why))
+                continue
         if form == "stream":
             # Written a piece at a time, so the block boundaries are not the
             # ones a single call would produce — still one stream, still has to

@@ -99,6 +99,24 @@ fn stream_zlib(body : Bytes, step : Int32) -> Bytes {
 }
 
 ///|
+/// One archive per shape the writer can produce, so an external reader sees
+/// each of them.
+fn archive(body : Bytes, variant : Int32) -> Bytes {
+  let entries = [
+    @zip.Entry::new("first.txt", body),
+    @zip.Entry::new("dir/second.txt", b"the second member"),
+  ]
+  match variant {
+    0 => @zip.zip(entries[:])
+    1 => @zip.zip(entries[:], zip64=true)
+    2 => @zip.zip(entries[:], descriptor=true)
+    3 => @zip.zip(entries[:], password="moonzip")
+    4 => @zip.zip(entries[:], zip64=true, descriptor=true)
+    _ => @zip.zip(entries[:])
+  }
+}
+
+///|
 fn main {
   for kind in 0..<7 {
     let body = sample(kind)
@@ -127,6 +145,11 @@ fn main {
       )
       println(
         "stream zlib \{kind} \{step} \{@base16.encode(stream_zlib(body, step)[:])}",
+      )
+    }
+    for variant in 0..<5 {
+      println(
+        "zip \{kind} \{variant} \{@base16.encode(archive(body, variant)[:])}",
       )
     }
   }
