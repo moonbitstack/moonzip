@@ -141,6 +141,11 @@ fn main {
     println("zlib \{kind} \{@base16.encode(@zlib.zlib(body[:])[:])}")
     println("lzma \{kind} \{@base16.encode(@lzma.lzma(body[:])[:])}")
     println("xz \{kind} \{@base16.encode(@xz.xz(body[:])[:])}")
+    for level in [1, 9] {
+      println(
+        "bzip2 \{kind} \{level} \{@base16.encode(@bzip2.bzip2(body[:], level~)[:])}",
+      )
+    }
     for step in [1, 7, 4096, 65536] {
       println(
         "stream gzip \{kind} \{step} \{@base16.encode(stream_gzip(body, step)[:])}",

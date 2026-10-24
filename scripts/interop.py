@@ -9,6 +9,7 @@ foreign writer produces: a data descriptor, a forced Zip64 header. A reader that
 only ever sees its own output can be wrong for years and never notice.
 """
 
+import bz2 as bz2_mod
 import io
 import lzma as lzma_mod
 import os
@@ -301,6 +302,56 @@ def write_xz():
     print("wrote {} ({} bytes)".format(path, len(blob)))
 
 
+BZIP2_HEAD = [
+    "// Copyright 2026 Leo Cheng",
+    "// SPDX-License-Identifier: Apache-2.0",
+    "",
+    "///|",
+    "/// A bzip2 stream written by Python's `bz2`, pinned as it came out.",
+    "///",
+    "/// Python calls libbz2, which is the reference implementation of the format,",
+    "/// so this is the only judge that matters. Python also picks its own table",
+    "/// counts and its own block boundaries, which our encoder does not have to",
+    "/// agree with: a reader that only understood its own output would learn",
+    "/// nothing here.",
+    "///",
+    "///     python3 scripts/interop.py",
+    "///",
+    "/// regenerates this file.",
+    "",
+    "///|",
+    "fn python_body() -> Bytes {",
+    "  let out : Array[Byte] = []",
+    "  for _ in 0..<20 {",
+    '    for b in "the quick brown fox jumps over the lazy dog. " {',
+    "      out.push((b.to_int() % 256).to_byte())",
+    "    }",
+    "  }",
+    "  Bytes::from_array(out)",
+    "}",
+    "",
+    "///|",
+    'test "python\'s bzip2 stream reads back" {',
+    "  let packed = @base16.decode_lossy(",
+]
+
+
+def write_bzip2():
+    payload = b"the quick brown fox jumps over the lazy dog. " * 20
+    blob = bz2_mod.compress(payload, 6)
+    lines = list(BZIP2_HEAD)
+    lines.append('    "{}",'.format(blob.hex()))
+    lines += [
+        "  )",
+        "  assert_eq(@bzip2.bunzip2(packed[:]), python_body())",
+        "}",
+    ]
+    path = os.path.join(ROOT, "bzip2", "interop_test.mbt")
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(lines) + "\n")
+    print("wrote {} ({} bytes)".format(path, len(blob)))
+
+
 def main():
     shapes = [
         ("plain", build()),
@@ -320,6 +371,7 @@ def main():
     write_tar()
     write_lzma()
     write_xz()
+    write_bzip2()
 
 
 if __name__ == "__main__":

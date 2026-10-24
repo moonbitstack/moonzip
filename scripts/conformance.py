@@ -11,6 +11,7 @@ the half that cannot be pinned, because our encoder is allowed to improve and
 its bytes are allowed to change.
 """
 
+import bz2
 import io
 import sys
 import lzma
@@ -88,6 +89,11 @@ def main():
                 blob = bytes.fromhex(rest[0])
                 got = zlib.decompressobj(31).decompress(blob)
                 what = "gzip {}".format(kind)
+            elif form == "bzip2":
+                level = rest[0]
+                blob = bytes.fromhex(rest[1])
+                got = bz2.decompress(blob)
+                what = "bzip2 {} level={}".format(kind, level)
             elif form == "xz":
                 blob = bytes.fromhex(rest[0])
                 got = lzma.decompress(blob, format=lzma.FORMAT_XZ)

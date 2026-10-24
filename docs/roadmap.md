@@ -5,7 +5,7 @@ expensive to change later. Each section names the format, the specification, the
 entry points it will have, and — the part that matters — *why* those and not
 others.
 
-Everything below follows the vocabulary the seven existing packages already use:
+Everything below follows the vocabulary the ten existing packages already use:
 
 - `BytesView` in, `Bytes` out.
 - `raise @moonzip.Refused` on the reading side only. A writer has no input to
@@ -124,36 +124,47 @@ from a passphrase by iterated hashing) is the place where "supports encryption"
 becomes a real claim rather than a checkbox — and it is also the natural time to
 revisit zip's gap, since the two would share the AES and the KDF.
 
-## bzip2 — wire format, derived from a real stream
+## bzip2 — done
 
-The bit-level layout below was confirmed by dumping `bz2.compress(...)` and
-reading the bits back, so the next session starts from facts rather than memory:
+Implemented, tested both ways against libbz2, and streaming. The interesting part
+of this one is *how* it was finished, because the first two attempts failed and the
+reason is worth keeping.
+
+An earlier version of this file held a wire format "derived from a real stream" —
+dumping `bz2.compress` and reading the bits back. Four of those derived facts were
+wrong:
+
+| Derived, and wrong | What `decompress.c` actually does |
+|:--|:--|
+| `nGroups` is 3 bits **plus 2** | it is the value: `GET_BITS(nGroups, 3)`, then a range check of 2..6 |
+| the selector **count** is a unary run | it is a **15-bit field**: `GET_BITS(nSelectors, 15)` |
+| a bad code length is **re-read as 5 bits** | it is a data error: `if (curr < 1 || curr > 20) RETURN(BZ_DATA_ERROR)` |
+| `RUNA`, `RUNB` are 1 and 2 | they are 0 and 1: `BZ_RUNA 0`, `BZ_RUNB 1` |
+
+Every one of them is the kind of wrong that still compiles and still round-trips
+against your own encoder, because the writer and the reader share the mistake. The
+first stream from a foreign encoder — Python's — hit the unary selector count at
+once, decoded one table perfectly, then read the payload as code lengths.
+
+The lesson, recorded so a future session does not repeat it: **read the reference
+source, not the bytes.** The clone lives in `.temp-ref/` (gitignored) and is a
+`git clone --depth 1 https://github.com/libarchive/bzip2` away:
 
 ```
-header: "BZh" (3) + level '1'..'9' (1)          -- 4 bytes, NOT 10
-        the block magic 0x314159265359 is the FIRST 6 bytes of the pi digits
-        at offset 4, so the first block starts at byte 4, not byte 10.
-block:
-  0x314159265359 (48)  block-crc (32)  randomised (1)  bwt-pointer (24)
-  used bitmap: 16 bits; for each set bit i, another 16 bits choose which of
-    symbols 16i..16i+15 are present  -> inUse[256]
-  nGroups = 3 bits + 2
-  selectors: count is unary (0*...1, count = zeros+1), each value is an MTF
-    index into 0..nGroups-1, that value moved to front
-  code lengths: per group, curr = 5 bits; per symbol:
-    while curr < 1 or curr > 20: curr = 5 bits
-    len[g][s] = curr
-    delta for next: read 1 bit; 0 => stay; 1 => read another: 0 => curr+1, 1 => curr-1
-  data: MSB-first Huffman symbols, group chosen by selectors[gsel], gsel wraps
-    at nSelectors and the selector MTF resets per block
-  MTF symbols: 1 = RUNA, 2 = RUNB, nInUse+1 = EOB (end of block)
-  end-of-stream magic 0x177245385090 then the combined CRC (32)
+.temp-ref/bzip2/decompress.c   -- GET_MTF_VAL (l.74), the whole block (l.240-500)
+.temp-ref/bzip2/huffman.c      -- BZ2_hbCreateDecodeTables, the perm/base/limit trio
+.temp-ref/bzip2/compress.c     -- sendMTFValues, the table-selection loop
+.temp-ref/bzip2/randtable.c    -- the 512-entry mask table
 ```
 
-The symbols then go MTF-decode → RLE(RUNLEN) → inverse BWT → the block, whose
-CRC must match the one in front. The judge is Python's `bz2` (libbz2), which
-compresses for us to read and reads what we write — the same two-way check every
-other format here passes.
+Two facts that only the source settles:
+
+- Blocks are **not padded between them**. `bsFinishWrite` runs once, at the end of
+  the stream, so a block boundary can fall inside a byte. A streaming reader
+  therefore has to carry a bit position, not a byte offset — which is why
+  `Reader` keeps an accumulator rather than an index.
+- `state_in_len` is capped at 255 and a run of four or more is written as four
+  bytes plus `length - 4`, and that count byte is itself added to the symbol set.
 
 ## What is not on the list, and why
 
@@ -172,12 +183,13 @@ cipher, the key derivation and the authentication are the same code.
 
 ## The order, and what each one proves
 
-1. **zstd** — proves the entropy layer. FSE and Huffman written once serve zstd,
-   and the Huffman half is a second opinion on `deflate/huffman.mbt`.
-2. **brotli** — proves the dictionary and the context model. Nothing else here
-   looks like it.
-3. ~~lzma~~ — done. The range coder, and the hardest decoder in the set.
-4. ~~xz~~ — done. Index, checks, block framing, LZMA2 chunks.
-5. **7z** — proves the architecture: a `Codec` seam that already exists in `zip`,
+1. ~~bzip2~~ — done. The block sort, and the entropy layer that makes a sorted
+   block encodable.
+2. **7z** — proves the architecture: a `Codec` seam that already exists in `zip`,
    reused rather than reinvented. Its header is itself an LZMA stream, so it can
-   start now.
+   start now, and the codec it needs is the one `xz` already uses.
+3. **brotli** — proves the dictionary and the context model. Nothing else here
+   looks like it: a 122 KB static dictionary, ten transforms, and literal contexts
+   keyed on the last two bytes.
+4. **zstd** — proves the entropy layer. FSE written once serves zstd, and the
+   Huffman half is a second opinion on `deflate/huffman.mbt`.

@@ -1,0 +1,28 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonzip/bzip2"
+
+import {
+  "moonbitstack/moonzip",
+}
+
+// Values
+pub fn bunzip2(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
+
+pub fn bzip2(BytesView, level? : Int32) -> Bytes
+
+// Errors
+
+// Types and methods
+type Reader
+pub fn Reader::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Reader::new(checksum? : Bool, limit? : Int32) -> Self
+pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
+
+type Writer
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32) -> Self
+pub fn Writer::push(Self, BytesView) -> Bytes
+
+// Type aliases
+
+// Traits

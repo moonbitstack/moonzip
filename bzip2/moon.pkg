@@ -1,0 +1,14 @@
+// bzip2: https://sourceware.org/bzip2/
+//
+// Burrows-Wheeler, then move-to-front, then Huffman. Sorting a block's rotations
+// clusters equal contexts together; the clusters make the move-to-front stream
+// mostly zeros; the zeros are what the Huffman layer then gets to encode. Each
+// stage is a package-local file, and the order of the three is the format.
+import {
+  "moonbitstack/moonzip",
+}
+
+import {
+  "moonbitstack/moonzip/bzip2",
+  "moonbitstack/moonbase/base16",
+} for "test"

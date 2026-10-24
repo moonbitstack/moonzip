@@ -1,6 +1,6 @@
 # moonzip
 
-Compression for MoonBit. Nine formats, one per package, each with the interface
+Compression for MoonBit. Ten formats, one per package, each with the interface
 its own specification argues for — and no dependency beyond `moonbase`.
 
 ```moonbit
@@ -22,15 +22,15 @@ let members = @zip.unzip(archive[:])
 | `snappy` | The block and framing formats, with CRC-32C | Snappy |
 | `lzma` | The LZMA codec and the `.lzma` container | LZMA SDK |
 | `xz` | The xz container over LZMA2 | xz file format |
+| `bzip2` | Burrows-Wheeler, move-to-front and Huffman, both directions | bzip2 |
 
 Run `moon run examples/tour` for the surface in one go, `examples/stream` for the
 streaming pair, and `examples/archive` for the two containers.
 
-Three more are on the way and are named here rather than discovered later:
-**7z** (a container over the LZMA codec that is already here), **bzip2**, and
-**brotli**.
-Nothing in this library is a stub that returns its input; a format is either
-implemented or it is refused by name.
+Two more are on the way and are named here rather than discovered later: **7z**,
+a container over the LZMA codec that is already here, and **brotli**. Nothing in
+this library is a stub that returns its input; a format is either implemented or
+it is refused by name.
 
 ## Configuration
 
@@ -188,6 +188,34 @@ decoders read, not the last few percent.
 This is the codec that xz and 7z are built on, which is why it is a package of its
 own: the container work comes next, and it will not need a second codec.
 
+## bzip2
+
+Sort the block's rotations, and equal contexts end up adjacent. Read the last
+column, and the byte after each context is where the next one starts. That is the
+whole idea, and the three stages after it exist to make the result encodable:
+move-to-front turns "the same byte as last time at this context" into a zero, a
+run of zeros becomes two symbols, and Huffman codes what is left.
+
+```moonbit
+@bzip2.bzip2(body[:], level=9)      // 900k blocks
+@bzip2.bunzip2(packed[:])           // block CRCs and the combined one checked
+```
+
+The encoder is a real one: an exact block sort by prefix doubling, and six Huffman
+tables assigned by a cost pass and rebuilt from what they were given, four times
+over — the reference's own loop. On the body in the table below it lands within a
+per cent of what `bzip2` writes.
+
+Two details cost time and are worth naming, because both produce streams that
+look fine and read wrong:
+
+- The selector count is a **fifteen-bit field**, not a unary run. A reader that
+  assumes unary decodes the first table perfectly and then reads the data as code
+  lengths.
+- Blocks are **not padded**. `bsFinishWrite` is called once, after the trailer, so
+  a block boundary can fall in the middle of a byte — which means a streaming
+  reader has to carry a bit position, not a byte offset.
+
 ## The formats chosen for speed
 
 `lz4` and `snappy` trade ratio for decode speed, and the numbers below are what
@@ -203,10 +231,16 @@ tail, printed by `examples/stream`.
 | zlib | 2,667 | 1.4% |
 | snappy block | 9,884 | 5.4% |
 | snappy frame (three 64 KiB chunks) | 12,439 | 6.8% |
+| bzip2 | 853 | 0.5% |
+| xz | 468 | 0.3% |
+| lzma, alone | 415 | 0.2% |
 | — nothing | 184,000 | 100% |
 
-That lz4 beats DEFLATE here is the body's fault: four thousand repetitions of one
-sentence are exactly what a two-byte back-reference is for. On prose, DEFLATE
+The three at the bottom are the block-sorting and range-coding end of the field:
+they find the repetition that DEFLATE's 32 KiB window cannot see and spend a lot
+of setup finding it. That lz4 beats DEFLATE here is the body's fault too: four
+thousand repetitions of one sentence are exactly what a two-byte back-reference is
+for. On prose, DEFLATE
 wins, because Huffman coding of literals is a thing lz4 does not do at all. The
 frame sizes are larger than the block sizes because each block restarts the match
 finder, which loses the cross-block matches a repetitive body lives on.
@@ -217,15 +251,21 @@ finder, which loses the cross-block matches a repetitive body lives on.
 
 `scripts/conformance.py` takes every stream `examples/vectors` prints — every
 level, every block type, every chunk size, Zip64, descriptors, ZipCrypto — and
-hands it to Python's `zlib`, `gzip` and `zipfile`, which have to read it back.
+hands it to the reference implementation of each format: Python's `zlib`, `gzip`
+and `zipfile`, `bz2` (which is libbz2), `lzma` (which is liblzma, and reads both
+`.lzma` and xz). Each one has to read our bytes back.
+
 `scripts/interop.py` goes the other way: it writes archives with Python's
-`zipfile` and `tarfile` in the shapes our own writer would never produce — a data
-descriptor because the sink it wrote to could not seek, a forced Zip64 header,
-GNU long names — and pins them as tests.
+`zipfile`, `tarfile`, `bz2` and `lzma` in the shapes our own writer would never
+produce — a data descriptor because the sink it wrote to could not seek, a forced
+Zip64 header, GNU long names, an LZMA stream with no stated length and an
+end-of-stream marker instead — and pins them as tests. A reader that only ever saw
+its own output would pass all of those and still be wrong.
 
 The readers are checked against the vectors the specifications publish: the
 xxHash-32 of the empty input and of `a`, the CRC-32C of `123456789`, gzip's own
-fixed-Huffman streams. And against broken input that must be refused: a flipped
+fixed-Huffman streams, and the shapes libbz2 writes that our encoder never does —
+several blocks, runs on both sides of the four-byte threshold, every byte value. And against broken input that must be refused: a flipped
 payload byte, a truncation, a bad header, a back-reference reaching before the
 start of the output, a block that claims more than it holds.
 

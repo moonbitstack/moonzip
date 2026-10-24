@@ -279,8 +279,8 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
     <p class="eyebrow">MoonBit · compression</p>
     <h1>Write bytes.<br><em>Read them back.</em></h1>
     <p class="hero__lede">
-      Nine formats, one per package, each with the interface its own specification
-      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA, xz</b> — readers that
+      Ten formats, one per package, each with the interface its own specification
+      argues for. <b>DEFLATE, gzip, zlib, zip, tar, lz4, snappy, LZMA, xz, bzip2</b> — readers that
       check what they read, writers that stream, and no dependency beyond
       <code>moonbase</code>.
     </p>
@@ -292,18 +292,21 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
 
     <div class="strata" aria-label="Compressed sizes of one 184 KB body">
       <div class="strata__row"><b>raw</b><span class="strata__bar" style="width:56%"></span><span class="strata__num">184,000 B</span></div>
-      <div class="strata__row"><b>snappy</b><span class="strata__bar strata__bar--thin" style="width:19%"></span><span class="strata__num">9,884 B</span></div>
-      <div class="strata__row"><b>zlib</b><span class="strata__bar strata__bar--thin" style="width:12%"></span><span class="strata__num">2,667 B</span></div>
-      <div class="strata__row"><b>deflate</b><span class="strata__bar strata__bar--thin" style="width:12%"></span><span class="strata__num">2,661 B</span></div>
-      <div class="strata__row"><b>lz4</b><span class="strata__bar strata__bar--thin" style="width:11%"></span><span class="strata__num">1,997 B</span></div>
-      <div class="strata__row"><b>gzip</b><span class="strata__bar strata__bar--thin" style="width:11%"></span><span class="strata__num">1,983 B</span></div>
+      <div class="strata__row"><b>snappy</b><span class="strata__bar strata__bar--thin" style="width:13%"></span><span class="strata__num">9,884 B</span></div>
+      <div class="strata__row"><b>zlib</b><span class="strata__bar strata__bar--thin" style="width:7%"></span><span class="strata__num">2,667 B</span></div>
+      <div class="strata__row"><b>deflate</b><span class="strata__bar strata__bar--thin" style="width:7%"></span><span class="strata__num">2,661 B</span></div>
+      <div class="strata__row"><b>lz4</b><span class="strata__bar strata__bar--thin" style="width:6%"></span><span class="strata__num">1,997 B</span></div>
+      <div class="strata__row"><b>gzip</b><span class="strata__bar strata__bar--thin" style="width:6%"></span><span class="strata__num">1,983 B</span></div>
+      <div class="strata__row"><b>bzip2</b><span class="strata__bar strata__bar--thin" style="width:4%"></span><span class="strata__num">853 B</span></div>
+      <div class="strata__row"><b>xz</b><span class="strata__bar strata__bar--thin" style="width:3%"></span><span class="strata__num">468 B</span></div>
     </div>
     <p class="tnote">
       One body — 184,000 bytes of English text with a periodic tail — compressed by
-      each format, printed by <code>examples/stream</code>. The bars are compressed
-      on a square-root scale, or the fast formats would be invisible. That lz4
-      beats DEFLATE here is the body's fault, not lz4's: four thousand repetitions
-      of one sentence are exactly what a two-byte back-reference is for.
+      each format, printed by <code>examples/stream</code>. The bars are on a
+      square-root scale, or everything below gzip would be invisible. Eight
+      formats, one body, and a spread of four hundred to one: the block sorters at
+      the bottom see repetition that a 32 KiB window cannot, and bzip2 pays for
+      that with a sort and xz with a range coder.
     </p>
   </div>
 </header>
@@ -413,6 +416,11 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
           <td class="mono">xz</td><td class="mono">xz file format</td>
           <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
           <td>LZMA2 chunks, CRC-32/CRC-64/none checks, the index and the footer. Verified both ways against Python's <code>lzma</code>.</td>
+        </tr>
+        <tr>
+          <td class="mono">bzip2</td><td class="mono">bzip2</td>
+          <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
+          <td>Burrows-Wheeler, move-to-front and six Huffman tables, both directions — verified against libbz2, which is what Python's <code>bz2</code> calls.</td>
         </tr>
         <tr>
           <td class="mono">brotli</td><td class="mono">RFC 7932</td>

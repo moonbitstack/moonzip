@@ -116,12 +116,27 @@ fn main raise {
   println("snappy block: \{@snappy.snappy(source[:]).length()} bytes")
   println("snappy frame: \{@snappy.frame(source[:]).length()} bytes")
 
+  // The two block-sorting-ish formats: bzip2 sorts, xz range-codes. Both beat
+  // DEFLATE on text and both pay for it in setup, which is the trade the table in
+  // the README is about.
+  println("bzip2 block: \{@bzip2.bzip2(source[:]).length()} bytes")
+  println("xz: \{@xz.xz(source[:]).length()} bytes")
+  println("lzma alone: \{@lzma.lzma(source[:]).length()} bytes")
+
   // And the round trips, so the numbers are of something that works.
   if @lz4.unframe(@lz4.frame(source[:])[:]) != source {
     abort("lz4 frame did not round-trip")
   }
   if @snappy.unframe(@snappy.frame(source[:])[:]) != source {
     abort("snappy frame did not round-trip")
+  }
+  let packed_twice = @bzip2.bzip2(source[:])
+  if @bzip2.bunzip2(packed_twice[:]) != source {
+    abort("bzip2 did not round-trip")
+  }
+  let xzed = @xz.xz(source[:])
+  if @xz.unxz(xzed[:]) != source {
+    abort("xz did not round-trip")
   }
   println("both fast formats round-trip")
 }

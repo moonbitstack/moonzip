@@ -9,5 +9,6 @@ import {
   "moonbitstack/moonzip/zip",
   "moonbitstack/moonzip/lzma",
   "moonbitstack/moonzip/xz",
+  "moonbitstack/moonzip/bzip2",
   "moonbitstack/moonbase/base16",
 }
