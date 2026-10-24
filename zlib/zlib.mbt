@@ -42,7 +42,7 @@ pub fn unzlib(
   data : BytesView,
   checksum~ : Bool = true,
   limit? : Int32,
-) -> Bytes raise @moonzip.Broken {
+) -> Bytes raise @moonzip.Refused {
   if data.length() < 6 {
     raise @moonzip.Truncated(at=data.length())
   }

@@ -7,13 +7,13 @@ import {
 }
 
 // Values
-pub fn entry(BytesView, String, limit? : Int32, codecs? : ArrayView[&Codec]) -> Entry? raise @moonzip.Broken
+pub fn entry(BytesView, String, limit? : Int32, codecs? : ArrayView[&Codec]) -> Entry? raise @moonzip.Refused
 
 pub let level : Int32
 
-pub fn names(BytesView) -> Array[String] raise @moonzip.Broken
+pub fn names(BytesView) -> Array[String] raise @moonzip.Refused
 
-pub fn unzip(BytesView, limit? : Int32, codecs? : ArrayView[&Codec]) -> Array[Entry] raise @moonzip.Broken
+pub fn unzip(BytesView, limit? : Int32, codecs? : ArrayView[&Codec]) -> Array[Entry] raise @moonzip.Refused
 
 pub fn zip(ArrayView[Entry], level? : Int32, codecs? : ArrayView[&Codec]) -> Bytes
 
@@ -47,5 +47,5 @@ pub fn Kind::to_repr(Self) -> @debug.Repr
 pub(open) trait Codec {
   fn id(Self) -> Int32
   fn pack(Self, BytesView) -> Bytes
-  fn unpack(Self, BytesView, Int32?) -> Bytes raise @moonzip.Broken
+  fn unpack(Self, BytesView, Int32?) -> Bytes raise @moonzip.Refused
 }

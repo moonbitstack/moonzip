@@ -2,17 +2,36 @@
 package "moonbitstack/moonzip/deflate"
 
 import {
+  "moonbitlang/core/debug",
   "moonbitstack/moonzip",
 }
 
 // Values
-pub fn deflate(BytesView, level? : Int32, window? : Int32, chain? : Int32) -> Bytes
+pub fn deflate(BytesView, level? : Int32, window? : Int32, chain? : Int32, blocks? : Blocks) -> Bytes
 
-pub fn inflate(BytesView, limit? : Int32) -> Bytes raise @moonzip.Broken
+pub fn inflate(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
 
 // Errors
 
 // Types and methods
+pub(all) enum Blocks {
+  Auto
+  Fixed
+  Dynamic
+} derive(Eq, @debug.Debug)
+pub fn Blocks::equal(Self, Self) -> Bool
+pub fn Blocks::not_equal(Self, Self) -> Bool
+pub fn Blocks::to_repr(Self) -> @debug.Repr
+
+type Reader
+pub fn Reader::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Reader::new(limit? : Int32) -> Self
+pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
+
+type Writer
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, blocks? : Blocks) -> Self
+pub fn Writer::push(Self, BytesView) -> Bytes
 
 // Type aliases
 

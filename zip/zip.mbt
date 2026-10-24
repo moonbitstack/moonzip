@@ -35,7 +35,7 @@ pub(open) trait Codec {
   /// Compress.
   fn pack(Self, BytesView) -> Bytes
   /// Expand, honouring the caller's bound on the result.
-  fn unpack(Self, BytesView, Int32?) -> Bytes raise @moonzip.Broken
+  fn unpack(Self, BytesView, Int32?) -> Bytes raise @moonzip.Refused
 }
 
 ///|
@@ -326,7 +326,7 @@ pub fn zip(
 /// runs backwards over the 64 KiB a comment's two-byte length can reach. A
 /// reader that only looks at the last 22 bytes fails on every archive with a
 /// comment.
-fn end_record(archive : BytesView) -> Int32 raise @moonzip.Broken {
+fn end_record(archive : BytesView) -> Int32 raise @moonzip.Refused {
   let least = 22
   guard archive.length() >= least else {
     raise @moonzip.Header(at=0, what="shorter than a zip end record")
@@ -361,7 +361,7 @@ priv struct Listed {
 
 ///|
 /// Walk the central directory.
-fn directory(archive : BytesView) -> Array[Listed] raise @moonzip.Broken {
+fn directory(archive : BytesView) -> Array[Listed] raise @moonzip.Refused {
   let end = end_record(archive)
   let count = read16(archive, end + 10)
   let start = read32(archive, end + 16).reinterpret_as_int()
@@ -429,7 +429,7 @@ fn content(
   listed : Listed,
   limit : Int32?,
   codecs : ArrayView[&Codec],
-) -> Bytes raise @moonzip.Broken {
+) -> Bytes raise @moonzip.Refused {
   let at = listed.at
   guard at >= 0 &&
     at + 30 <= archive.length() &&
@@ -468,7 +468,7 @@ fn content(
 /// The central directory is a table at the end of the archive that names every
 /// member; reading it costs nothing next to expanding them. This is what a
 /// caller listing an archive wants, and what `zipfile.namelist()` is.
-pub fn names(archive : BytesView) -> Array[String] raise @moonzip.Broken {
+pub fn names(archive : BytesView) -> Array[String] raise @moonzip.Refused {
   directory(archive).map(listed => listed.name)
 }
 
@@ -484,7 +484,7 @@ pub fn entry(
   name : String,
   limit? : Int32,
   codecs~ : ArrayView[&Codec] = [],
-) -> Entry? raise @moonzip.Broken {
+) -> Entry? raise @moonzip.Refused {
   for listed in directory(archive) {
     if listed.name == name {
       return Some({
@@ -509,7 +509,7 @@ pub fn unzip(
   archive : BytesView,
   limit? : Int32,
   codecs~ : ArrayView[&Codec] = [],
-) -> Array[Entry] raise @moonzip.Broken {
+) -> Array[Entry] raise @moonzip.Refused {
   let out : Array[Entry] = []
   for listed in directory(archive) {
     out.push({

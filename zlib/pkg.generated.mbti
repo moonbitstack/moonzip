@@ -8,7 +8,7 @@ import {
 // Values
 pub fn adler32(BytesView) -> UInt32
 
-pub fn unzlib(BytesView, checksum? : Bool, limit? : Int32) -> Bytes raise @moonzip.Broken
+pub fn unzlib(BytesView, checksum? : Bool, limit? : Int32) -> Bytes raise @moonzip.Refused
 
 pub fn zlib(BytesView, level? : Int32, window? : Int32, chain? : Int32) -> Bytes
 

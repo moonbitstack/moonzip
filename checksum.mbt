@@ -11,12 +11,44 @@
 /// the other to reach it. When the checksum package in `mooncrypt` lands, this
 /// moves there and is re-exported from here.
 pub fn crc32(data : BytesView) -> UInt32 {
-  let mut crc = 0xFFFFFFFFU
+  let sum = Crc::new()
+  sum.push(data)
+  sum.finish()
+}
+
+///|
+/// The same checksum, taken a piece at a time.
+///
+/// A container that compresses a body it never holds cannot checksum it in one
+/// call either: the streaming writers in `gzip` and `zip` keep one of these
+/// beside their compressor and hand it each chunk as it goes past.
+pub(all) struct Crc {
+  mut state : UInt32
+}
+
+///|
+/// The running state: complemented, as the algorithm starts.
+pub fn Crc::new() -> Crc {
+  { state: 0xFFFFFFFFU, }
+}
+
+///|
+/// Fold a chunk into the running state.
+pub fn Crc::push(self : Crc, data : BytesView) -> Unit {
   for b in data {
-    crc = crc ^ b.to_uint()
+    self.state = self.state ^ b.to_uint()
     for _ in 0..<8 {
-      crc = if (crc & 1U) != 0U { (crc >> 1) ^ 0xEDB88320U } else { crc >> 1 }
+      self.state = if (self.state & 1U) != 0U {
+        (self.state >> 1) ^ 0xEDB88320U
+      } else {
+        self.state >> 1
+      }
     }
   }
-  crc ^ 0xFFFFFFFFU
+}
+
+///|
+/// The checksum itself: the state, complemented back.
+pub fn Crc::finish(self : Crc) -> UInt32 {
+  self.state ^ 0xFFFFFFFFU
 }

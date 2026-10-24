@@ -90,7 +90,7 @@ pub fn gunzip(
   length~ : Bool = true,
   header_crc~ : Bool = true,
   limit? : Int32,
-) -> Bytes raise @moonzip.Broken {
+) -> Bytes raise @moonzip.Refused {
   if data.length() < 18 {
     raise @moonzip.Truncated(at=data.length())
   }
@@ -185,7 +185,7 @@ fn read32(data : BytesView, at : Int32) -> UInt32 {
 
 ///|
 /// Step past a NUL-terminated header string.
-fn past_string(data : BytesView, from : Int32) -> Int32 raise @moonzip.Broken {
+fn past_string(data : BytesView, from : Int32) -> Int32 raise @moonzip.Refused {
   let mut at = from
   while at < data.length() && data[at] != b'\x00' {
     at += 1

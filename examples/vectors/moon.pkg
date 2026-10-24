@@ -1,0 +1,10 @@
+// The streams this library writes, as hex, for an external checker:
+// `moon run examples/vectors`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/deflate",
+  "moonbitstack/moonzip/gzip",
+  "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonbase/base16",
+}
