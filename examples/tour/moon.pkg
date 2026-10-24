@@ -5,4 +5,5 @@ import {
   "moonbitstack/moonzip/deflate",
   "moonbitstack/moonzip/gzip",
   "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonzip/brotli",
 }

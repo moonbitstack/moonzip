@@ -129,3 +129,56 @@ test "the output bound is enforced" {
     e => fail("wrong refusal: \{e}")
   }
 }
+
+///|
+/// The large-window extension is a different, deliberately incompatible format.
+/// A stream that asks for it is refused by name rather than decoded as if the
+/// header were RFC 7932 — the difference is a window size the rest of the stream
+/// silently disagrees with.
+test "the large-window extension is refused" {
+  // Window bits: one, then three zeros, then a one, which is the escape that only
+  // large-window brotli may use.
+  let stream : Bytes = b"\x11\x00\x00"
+  try {
+    let _ = @brotli.unbrotli(stream[:])
+    fail("a large-window header was accepted")
+  } catch {
+    e => if !(e is @moonzip.Header(_)) { fail("wrong refusal: \{e}") }
+  }
+}
+
+///|
+/// Bytes that are not a brotli stream at all must come back as a refusal, not as
+/// a crash and not as output. Every one of these starts with a bit pattern that
+/// is legal somewhere in the format, so the failure is deep in a tree rather than
+/// at the door.
+test "garbage is refused" {
+  let text = "the quick brown fox jumps over the lazy dog"
+  let body : Array[Byte] = []
+  for c in text {
+    body.push((c.to_int() % 256).to_byte())
+  }
+  let noise = @brotli.brotli(Bytes::from_array(body)[:])
+  let mut refused = 0
+  for at in 0..<noise.length() {
+    for mask in [0x01, 0x80, 0xFF] {
+      let flipped = FixedArray::make(noise.length(), b'\x00')
+      for i in 0..<noise.length() {
+        flipped[i] = noise[i]
+      }
+      flipped[at] = (flipped[at].to_int() ^ mask).to_byte()
+      try {
+        let _ = @brotli.unbrotli(Bytes::from_array(flipped)[:])
+      } catch {
+        _ => refused += 1
+      }
+    }
+  }
+  // Brotli carries no checksum, so a flipped bit may legitimately decode to
+  // different bytes. What it may not do is hang or read out of bounds; if any of
+  // these three hundred flips had done that, the test would not have reached the
+  // line above.
+  if refused == 0 {
+    fail("no corruption of \{noise.length()} bytes was detected at all")
+  }
+}

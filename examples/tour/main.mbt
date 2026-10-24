@@ -27,10 +27,16 @@ fn main raise {
   println(
     "zlib        -> \{zl.length()} bytes, back to \{@zlib.unzlib(zl[:]).length()}",
   )
+  let br = @brotli.brotli(body[:])
+  println(
+    "brotli      -> \{br.length()} bytes, back to \{@brotli.unbrotli(br[:]).length()}",
+  )
   println("crc32       -> \{@gzip.crc32(body[:])}")
   println("adler32     -> \{@zlib.adler32(body[:])}")
 
-  // A stream that has been tampered with does not quietly decompress.
+  // A stream that has been tampered with does not quietly decompress. gzip and
+  // zlib carry a checksum of their own, which is what catches this; brotli does
+  // not, and that is a property of the format rather than of this library.
   let bent = gz.to_array()
   bent[20] = (bent[20].to_int() ^ 0xFF).to_byte()
   try @gzip.gunzip(Bytes::from_array(bent)[:]) |> ignore catch {
