@@ -10,7 +10,7 @@ license = "Apache-2.0"
 
 keywords = [ "compression", "zip", "moonbit" ]
 
-description = "Compression and archives for MoonBit."
+description = "Compression and archives for MoonBit, one format per package."
 
 import {
   "moonbitstack/moonbase@0.4.0",
