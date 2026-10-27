@@ -72,3 +72,10 @@ jobs:
           moon run examples/tour --target native > /dev/null
           moon run examples/stream --target native > /dev/null
           moon run examples/archive --target native > /dev/null
+
+      - name: docs/api.html is generated and up to date
+        run: |
+          moon update
+          moon info
+          python3 scripts/gen_api.py
+          git diff --exit-code docs/api.html

@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moonzip — a progressive guide</title>
+<meta name="description" content="From one buffer to a whole archive: deflate and gzip, then zip and tar, then streaming, then choosing a format.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23191C1B'/><path d='M6 10h20M6 16h14M6 22h20' stroke='%23C99A2E' stroke-width='3'/></svg>">
+<style>
+/* The same strata palette as the home page: rules as geological layers, an
+   accent that appears only where something is measured, numerals as core samples. */
+:root {
+  --paper: #F2EFE7; --paper-deep: #E7E2D5; --ink: #191C1B; --ink-soft: #4A4F4B;
+  --ink-faint: #7C817B; --rust: #A8481F; --moss: #345745; --gold: #8A6614;
+  --line: #CDC6B4; --code-bg: #E9E4D6; --mark: #F0DFAE;
+  --shadow: 0 1px 0 rgba(25,28,27,.06), 0 12px 32px -24px rgba(25,28,27,.5);
+}
+html[data-theme="dark"] {
+  --paper: #0E1110; --paper-deep: #151A18; --ink: #E8E4D9; --ink-soft: #B3B0A5;
+  --ink-faint: #7E8279; --rust: #E08050; --moss: #7FB79A; --gold: #D9B356;
+  --line: #2C3230; --code-bg: #151A18; --mark: #3A3220;
+  --shadow: 0 1px 0 rgba(0,0,0,.5), 0 18px 40px -28px rgba(0,0,0,.9);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 16px/1.65 ui-sans-serif, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+::selection { background: var(--mark); color: var(--ink); }
+.serif { font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
+.mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+
+/* custom scrollbar — standard property inside @supports so Chrome, which drops
+   ::-webkit-scrollbar once scrollbar-color is set, still gets one */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-color: var(--ink-faint) var(--paper-deep); scrollbar-width: thin; }
+}
+* { scrollbar-width: thin; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--paper-deep); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 7px; border: 3px solid var(--paper-deep); }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
+/* the spine */
+.spine {
+  position: fixed; inset: 0 auto 0 0; width: 76px; border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; padding: 22px 0; gap: 16px;
+  z-index: 40; background: var(--paper);
+}
+.spine__mark { width: 30px; height: 30px; flex: none; }
+.spine__mark rect { fill: var(--ink); }
+.spine__mark path { stroke: var(--gold); }
+.spine__word { writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: .34em;
+  text-transform: uppercase; font: 500 10px/1 ui-monospace, monospace; color: var(--ink-faint); }
+.spine__rule { flex: 1; width: 1px; background: var(--line); }
+.spine a.spine__gh { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%;
+  display: grid; place-items: center; color: var(--ink-soft); }
+.spine a.spine__gh:hover { border-color: var(--ink-faint); color: var(--ink); }
+.spine__theme { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%;
+  background: transparent; color: var(--ink-soft); cursor: pointer; display: grid; place-items: center; font-size: 13px; }
+.spine__theme:hover { border-color: var(--ink-faint); color: var(--ink); }
+.shell { margin-left: 76px; }
+@media (max-width: 760px) {
+  .spine { position: static; width: auto; flex-direction: row; height: 56px; padding: 0 16px; }
+  .spine__word { writing-mode: horizontal-tb; letter-spacing: .2em; }
+  .spine__rule { flex: 1; height: 1px; width: auto; }
+  .shell { margin-left: 0; }
+}
+
+/* the hero */
+.hero { padding: 76px 7vw 0; }
+.hero__inner { max-width: 1120px; }
+.eyebrow { font: 500 11px/1 ui-monospace, monospace; letter-spacing: .28em;
+  text-transform: uppercase; color: var(--rust); margin: 0 0 26px; }
+h1 { margin: 0; font-family: ui-serif, "Iowan Old Style", Palatino, Georgia, serif;
+  font-size: clamp(46px, 8.5vw, 104px); line-height: .9; letter-spacing: -.035em; font-weight: 400; }
+h1 em { font-style: italic; color: var(--moss); }
+.hero__lede { max-width: 50ch; margin: 30px 0 0; font-size: clamp(16px,2vw,19px); color: var(--ink-soft); }
+.hero__lede b { color: var(--ink); font-weight: 600; }
+
+/* package index / toc */
+.toc { position: sticky; top: 0; z-index: 30; background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); padding: 12px 7vw;
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; }
+.toc a { font: 500 12px/1 ui-monospace, monospace; color: var(--ink-soft); text-decoration: none;
+  border: 1px solid var(--line); border-radius: 2px; padding: 6px 11px; }
+.toc a:hover { color: var(--ink); border-color: var(--ink-faint); }
+.toc .toc__lead { font: 500 10px/1 ui-monospace, monospace; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-faint); }
+
+/* sections */
+section { padding: 78px 7vw 0; }
+.wrap { max-width: 1120px; }
+section + section { border-top: 1px solid var(--line); }
+h2 { margin: 0 0 8px; font-family: ui-serif, Georgia, serif; font-weight: 400;
+  font-size: clamp(28px, 3.6vw, 44px); letter-spacing: -.02em; line-height: 1.1; }
+h2 .num { display: block; font: 400 11px/1 ui-monospace, monospace; letter-spacing: .3em;
+  color: var(--rust); margin-bottom: 16px; }
+.sub { margin: 0 0 34px; max-width: 64ch; color: var(--ink-soft); }
+
+/* the two-column rhythm: a narrow label, then the content */
+.pair { display: grid; grid-template-columns: 172px 1fr; gap: 34px; align-items: start; }
+@media (max-width: 880px) { .pair { grid-template-columns: 1fr; gap: 16px; } }
+.pair__label { font: 500 11px/1.7 ui-monospace, monospace; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-faint); padding-top: 6px; }
+.pair + .pair { margin-top: 40px; padding-top: 40px; border-top: 1px dashed var(--line); }
+
+p code, li code, td code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .92em; background: var(--code-bg); padding: 1px 5px; border-radius: 2px; border: 1px solid var(--line); }
+.xref { color: var(--moss); text-decoration: none; border-bottom: 1px solid var(--line); }
+.xref:hover { border-color: var(--moss); }
+
+/* code and output */
+.code-head { display: flex; align-items: center; gap: 10px; font: 500 10px/1 ui-monospace, monospace;
+  letter-spacing: .2em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px; }
+.code-head span { flex: 1; height: 1px; background: var(--line); }
+pre { margin: 0; }
+pre.code, pre.out { padding: 20px 22px; background: var(--code-bg); border: 1px solid var(--line);
+  border-radius: 2px; overflow-x: auto; font: 400 13px/1.72 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  tab-size: 2; white-space: pre; }
+pre.out { background: var(--paper-deep); color: var(--ink-soft); }
+.tok-k { color: var(--rust); }
+.tok-s { color: var(--moss); }
+.tok-c { color: var(--ink-faint); font-style: italic; }
+.tok-t { color: var(--gold); }
+
+/* the trade-off table */
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+th, td { text-align: left; padding: 12px 14px 12px 0; vertical-align: top; }
+thead th { font: 500 10px/1 ui-monospace, monospace; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--ink-faint); border-bottom: 1px solid var(--ink); padding-bottom: 10px; }
+tbody tr { border-bottom: 1px solid var(--line); }
+tbody tr:hover { background: var(--paper-deep); }
+td.mono, th.mono { font-family: ui-monospace, monospace; font-size: 12.5px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 2px; font: 500 10px/1.7 ui-monospace, monospace;
+  letter-spacing: .1em; text-transform: uppercase; border: 1px solid currentColor; }
+.pill--speed { color: var(--moss); }
+.pill--ratio { color: var(--rust); }
+.pill--wire { color: var(--gold); }
+
+footer { padding: 54px 7vw 70px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap;
+  gap: 18px 40px; align-items: baseline; font: 400 12px/1.8 ui-monospace, monospace; color: var(--ink-faint); }
+footer b { color: var(--ink); font-weight: 600; }
+footer a { color: var(--ink-soft); text-decoration: none; border-bottom: 1px solid var(--line); }
+footer a:hover { color: var(--ink); border-color: var(--ink); }
+</style>
+</head>
+<body>
+
+<nav class="spine" aria-label="Site">
+  <svg class="spine__mark" viewBox="0 0 32 32" aria-hidden="true">
+    <rect width="32" height="32"></rect>
+    <path d="M6 10h20M6 16h14M6 22h20" fill="none" stroke-width="3"></path>
+  </svg>
+  <span class="spine__word">moonzip</span>
+  <span class="spine__rule"></span>
+  <a class="spine__gh" href="https://github.com/moonbitstack/moonzip" title="GitHub" aria-label="GitHub">
+    <svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+    </svg>
+  </a>
+  <button class="spine__theme" id="theme" title="Switch theme" aria-label="Switch theme">◐</button>
+</nav>
+
+<div class="shell">
+
+<header class="hero">
+  <div class="hero__inner">
+    <p class="eyebrow">MoonBit · the guide</p>
+    <h1>From one buffer<br><em>to an archive.</em></h1>
+    <p class="hero__lede">
+      moonzip is one package per format. This walks the path a caller actually
+      takes: <b>compress a buffer</b>, put buffers <b>in an archive</b>, compress as
+      they <b>arrive</b>, and <b>choose the format</b> that fits. Every snippet below
+      runs as written; its output is what the library printed.
+    </p>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sections">
+  <span class="toc__lead">guide</span>
+  <a href="#deflate">01 Deflate &amp; gzip</a>
+  <a href="#archives">02 Archives</a>
+  <a href="#streaming">03 Streaming</a>
+  <a href="#choosing">04 Choosing a format</a>
+  <a href="api.html">API reference</a>
+  <a href="index.html">Home</a>
+</nav>
+
+<!-- ============================================================= 01 ======== -->
+<section id="deflate">
+  <div class="wrap">
+    <h2><span class="num">01 — Deflate &amp; gzip</span>The smallest unit is a buffer.</h2>
+    <p class="sub">
+      <code>deflate</code> is the raw codec (RFC 1951). <code>gzip</code> wraps it with
+      a ten-byte header, a CRC-32 and a length (RFC 1952). <code>zlib</code> wraps it
+      with a two-byte header and an Adler-32 (RFC 1950). All three round-trip to the
+      byte.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">compress &amp; read back</div>
+      <div>
+        <div class="code-head">moonbit<span></span></div>
+<pre class="code"><code class="hl">fn main raise {
+  let out : Array[Byte] = []
+  for _ in 0..&lt;200 {
+    for b in "the quick brown fox jumps over the lazy dog. " {
+      out.push((b.to_int() % 256).to_byte())
+    }
+  }
+  let body = Bytes::from_array(out)
+  println("original  -> \{body.length()} bytes")
+
+  let raw = @deflate.deflate(body[:])
+  println("deflate   -> \{raw.length()} bytes, back to \{@deflate.inflate(raw[:]).length()}")
+
+  let gz = @gzip.gzip(body[:])
+  println("gzip      -> \{gz.length()} bytes, back to \{@gzip.gunzip(gz[:]).length()}")
+
+  let zl = @zlib.zlib(body[:])
+  println("zlib      -> \{zl.length()} bytes, back to \{@zlib.unzlib(zl[:]).length()}")
+}</code></pre>
+        <div class="code-head">output<span></span></div>
+<pre class="out">original  -> 9000 bytes
+deflate   -> 87 bytes, back to 9000
+gzip      -> 105 bytes, back to 9000
+zlib      -> 93 bytes, back to 9000</pre>
+      </div>
+    </div>
+
+    <div class="pair">
+      <div class="pair__label">a tampered stream</div>
+      <div>
+        <p style="margin:0 0 18px;color:var(--ink-soft);font-size:14.5px">
+          A container that carries a checksum checks it. Flip one byte of the
+          trailing CRC and <code>gunzip</code> refuses, rather than hand back bytes
+          that look right and are not.
+        </p>
+        <div class="code-head">moonbit<span></span></div>
+<pre class="code"><code class="hl">fn main raise {
+  let out : Array[Byte] = []
+  for _ in 0..&lt;200 {
+    for b in "the quick brown fox jumps over the lazy dog. " {
+      out.push((b.to_int() % 256).to_byte())
+    }
+  }
+  let body = Bytes::from_array(out)
+
+  let gz = @gzip.gzip(body[:])
+  let bent = gz.to_array()
+  bent[gz.length() - 8] = (bent[gz.length() - 8].to_int() ^ 0xFF).to_byte()
+  try @gzip.gunzip(Bytes::from_array(bent)[:]) |> ignore catch {
+    Checksum(..) => println("tampered  -> refused: the checksum does not match")
+    _ => println("tampered  -> refused")
+  } noraise {
+    _ => println("tampered  -> accepted, which would be the bug")
+  }
+}</code></pre>
+        <div class="code-head">output<span></span></div>
+<pre class="out">tampered  -> refused: the checksum does not match</pre>
+        <p style="margin:14px 0 0;color:var(--ink-faint);font-size:13px">
+          The same input gives the same bytes every time: <code>gzip</code> writes a
+          zero modification time by default, so a build stays reproducible.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================= 02 ======== -->
+<section id="archives">
+  <div class="wrap">
+    <h2><span class="num">02 — Archives</span>gzip holds one thing; zip and tar hold many.</h2>
+    <p class="sub">
+      <code>zip</code> is random-access: a central directory at the end names every
+      member, so listing reads that and stops. <code>tar</code> is one header per file
+      and no compressed members; <code>targz</code> is a tarball through gzip, which is
+      all a <code>.tar.gz</code> ever was.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">build &amp; read</div>
+      <div>
+        <div class="code-head">moonbit<span></span></div>
+<pre class="code"><code class="hl">fn main raise {
+  let entries = [
+    @zip.Entry::new("readme.txt", b"a member of an archive\n", mtime=1700000000L),
+    @zip.Entry::new("data/table.csv", b"name,size\nreadme,24\n"),
+  ]
+  let archive = @zip.zip(entries[:])
+  println("zip       -> \{archive.length()} bytes, \{@zip.names(archive[:]).length()} members")
+  println("zip names -> \{@zip.names(archive[:]).join(", ")}")
+  let back = @zip.unzip(archive[:])
+  println("unzip     -> \{back.length()} members, first is \{back[0].name}")
+
+  let files = [
+    @tar.Entry::new("readme.txt", b"a member of an archive\n", mtime=1700000000L),
+    @tar.Entry::new("data/table.csv", b"name,size\nreadme,24\n"),
+  ]
+  let tarball = @tar.tar(files[:])
+  let gzipped = @tar.targz(files[:])
+  println("tar       -> \{tarball.length()} bytes")
+  println("tar.gz    -> \{gzipped.length()} bytes")
+}</code></pre>
+        <div class="code-head">output<span></span></div>
+<pre class="out">zip       -> 265 bytes, 2 members
+zip names -> readme.txt, data/table.csv
+unzip     -> 2 members, first is readme.txt
+tar       -> 3072 bytes
+tar.gz    -> 170 bytes</pre>
+        <p style="margin:14px 0 0;color:var(--ink-faint);font-size:13px">
+          Listing reads only the directory; <code>unzip</code> expands on demand, so a
+          caller can pull one member without touching the rest.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================= 03 ======== -->
+<section id="streaming">
+  <div class="wrap">
+    <h2><span class="num">03 — Streaming</span>The body never has to be in one piece.</h2>
+    <p class="sub">
+      A response body arrives in chunks; a file is read four kilobytes at a time. The
+      <code>Writer</code>/<code>Reader</code> pair takes it a piece at a time and never
+      holds the whole thing — only the 32 KiB window a back-reference can reach, plus
+      four bytes of running checksum. <code>push</code> returns what is ready;
+      <code>finish</code> flushes the rest and checks the trailer.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">4 KiB out, 777 B in</div>
+      <div>
+        <div class="code-head">moonbit<span></span></div>
+<pre class="code"><code class="hl">fn main raise {
+  let out : Array[Byte] = []
+  for i in 0..&lt;4000 {
+    for b in "the quick brown fox jumps over the lazy dog. " {
+      out.push((b.to_int() % 256).to_byte())
+    }
+    out.push((i % 251).to_byte())
+  }
+  let source = Bytes::from_array(out)
+  println("body      -> \{source.length()} bytes")
+
+  let writer = @gzip.Writer::new(level=9)
+  let packed : Array[Byte] = []
+  let mut at = 0
+  while at &lt; source.length() {
+    let stop = if source.length() - at &lt; 4096 { source.length() } else { at + 4096 }
+    for b in writer.push(source[at:stop]) { packed.push(b) }
+    at = stop
+  }
+  for b in writer.finish() { packed.push(b) }
+  let gzipped = Bytes::from_array(packed)
+  println("gzip      -> \{gzipped.length()} bytes (\{100 - gzipped.length() * 100 / source.length()}% smaller)")
+
+  let reader = @gzip.Reader::new()
+  let got : Array[Byte] = []
+  let mut at2 = 0
+  while at2 &lt; gzipped.length() {
+    let stop = if gzipped.length() - at2 &lt; 777 { gzipped.length() } else { at2 + 777 }
+    for b in reader.push(gzipped[at2:stop]) { got.push(b) }
+    at2 = stop
+  }
+  for b in reader.finish() { got.push(b) }
+  println("gunzip    -> \{Bytes::from_array(got).length()} bytes, matches: \{Bytes::from_array(got) == source}")
+}</code></pre>
+        <div class="code-head">output<span></span></div>
+<pre class="out">body      -> 184000 bytes
+gzip      -> 1983 bytes (99% smaller)
+gunzip    -> 184000 bytes, matches: true</pre>
+        <p style="margin:14px 0 0;color:var(--ink-faint);font-size:13px">
+          The home page runs the same algorithm in the browser; here it is in MoonBit,
+          on a body fed back in pieces that fall inside headers and codes.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================= 04 ======== -->
+<section id="choosing">
+  <div class="wrap">
+    <h2><span class="num">04 — Choosing a format</span>No format wins.</h2>
+    <p class="sub">
+      The numbers are one 184,000-byte body of English text with a periodic tail,
+      printed by <code>examples/stream</code>. They are the same body the home page's
+      strata show — here as a table, with what each format is for.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Format</th><th class="mono">Bytes</th><th class="mono">Of original</th><th>Reach for it when</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">gzip</td><td class="mono">1,983</td><td class="mono">1.1%</td><td>A single file on a wire — HTTP, a log, a download.</td></tr>
+        <tr><td class="mono">zlib</td><td class="mono">2,667</td><td class="mono">1.4%</td><td>The <code>deflate</code> HTTP content coding; a stream wrapped by someone else's framing.</td></tr>
+        <tr><td class="mono">deflate (dynamic)</td><td class="mono">2,661</td><td class="mono">1.4%</td><td>Raw DEFLATE when no container is wanted at all.</td></tr>
+        <tr><td class="mono">lz4 block</td><td class="mono">1,997</td><td class="mono">1.1%</td><td>Decode speed above everything — a cache, a transport.</td></tr>
+        <tr><td class="mono">lz4 frame</td><td class="mono">4,576</td><td class="mono">2.5%</td><td>lz4 with a header, a content checksum and skippable frames.</td></tr>
+        <tr><td class="mono">snappy block</td><td class="mono">9,884</td><td class="mono">5.4%</td><td>The framing Google uses — protobuf on the wire, Parquet on disk.</td></tr>
+        <tr><td class="mono">snappy frame</td><td class="mono">12,439</td><td class="mono">6.8%</td><td>Snappy with per-chunk masked CRC-32C.</td></tr>
+        <tr><td class="mono">brotli</td><td class="mono">682</td><td class="mono">0.4%</td><td>Static assets on the web; it is the codec that serves this page's text.</td></tr>
+        <tr><td class="mono">zstd</td><td class="mono">3,042</td><td class="mono">1.7%</td><td>A general replacement for gzip and zlib, with a fast decoder.</td></tr>
+        <tr><td class="mono">bzip2</td><td class="mono">853</td><td class="mono">0.5%</td><td>When the setup cost is worth it on highly repetitive text.</td></tr>
+        <tr><td class="mono">xz</td><td class="mono">468</td><td class="mono">0.3%</td><td>Distribution tarballs, where size matters most and decode time does not.</td></tr>
+        <tr><td class="mono">lzma alone</td><td class="mono">415</td><td class="mono">0.2%</td><td>The codec xz and 7z are built on, on its own.</td></tr>
+        <tr><td class="mono">— nothing</td><td class="mono">184,000</td><td class="mono">100%</td><td>The body, uncompressed, for reference.</td></tr>
+      </tbody>
+    </table>
+
+    <p class="sub" style="margin-top:34px">
+      Pick by what the caller does with the bytes. <b>Servicing a request:</b> lz4 or
+      snappy. <b>Storing a file people download:</b> gzip or zstd. <b>Shipping a
+      tarball:</b> gzip for speed, xz for size. Every function above is documented in
+      the <a class="xref" href="api.html">API reference</a>.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <span><b>moonzip</b> — Apache-2.0</span>
+  <span>Leo Cheng</span>
+  <span><a href="https://github.com/moonbitstack/moonzip">github.com/moonbitstack/moonzip</a></span>
+  <span style="margin-left:auto"><a href="index.html">home</a> · <a href="api.html">api</a></span>
+</footer>
+
+</div>
+
+<script>
+// theme toggle, shared with the rest of the site
+(function () {
+  const html = document.documentElement;
+  const saved = localStorage.getItem("moonzip-theme");
+  if (saved) html.dataset.theme = saved;
+  document.getElementById("theme").addEventListener("click", () => {
+    const now = html.dataset.theme === "dark" ? "light"
+      : html.dataset.theme === "light" ? "dark"
+      : (matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark");
+    html.dataset.theme = now;
+    localStorage.setItem("moonzip-theme", now);
+  });
+})();
+
+// a small MoonBit highlighter, matching the token colours of the API page
+(function () {
+  const KW = /\b(pub|pub\(all\)|pub\(open\)|fn|type|struct|enum|suberror|raise|Self|derive|mut|impl|for|extend|with|trait|let|UInt32|Bytes|Int32|Int64|String|Bool|Unit)\b/g;
+  const TYPE = /(?<![>\w"&;])[A-Z]\w*/g;
+  function esc(s){return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function hl(src){
+    let s = esc(src);
+    s = s.replace(/&quot;[^&]*?&quot;/g, m => '<span class="tok-s">'+m+'</span>');
+    s = s.replace(/\/\/[^\n]*/g, m => '<span class="tok-c">'+m+'</span>');
+    s = s.replace(KW, m => '<span class="tok-k">'+m+'</span>');
+    s = s.replace(TYPE, m => '<span class="tok-t">'+m+'</span>');
+    return s;
+  }
+  document.querySelectorAll("code.hl").forEach(el => { el.innerHTML = hl(el.textContent); });
+})();
+</script>
+</body>
+</html>

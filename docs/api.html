@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moonzip — API reference</title>
+<meta name="description" content="The full public interface of moonzip, generated from each package. One format per package.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23191C1B'/><path d='M6 10h20M6 16h14M6 22h20' stroke='%23C99A2E' stroke-width='3'/></svg>">
+<style>
+:root {
+  --paper: #F2EFE7; --paper-deep: #E7E2D5; --ink: #191C1B; --ink-soft: #4A4F4B;
+  --ink-faint: #7C817B; --rust: #A8481F; --moss: #345745; --gold: #8A6614;
+  --line: #CDC6B4; --code-bg: #E9E4D6; --mark: #F0DFAE;
+  --shadow: 0 1px 0 rgba(25,28,27,.06), 0 12px 32px -24px rgba(25,28,27,.5);
+}
+html[data-theme="dark"] {
+  --paper: #0E1110; --paper-deep: #151A18; --ink: #E8E4D9; --ink-soft: #B3B0A5;
+  --ink-faint: #7E8279; --rust: #E08050; --moss: #7FB79A; --gold: #D9B356;
+  --line: #2C3230; --code-bg: #151A18; --mark: #3A3220;
+  --shadow: 0 1px 0 rgba(0,0,0,.5), 0 18px 40px -28px rgba(0,0,0,.9);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 16px/1.65 ui-sans-serif, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--mark); color: var(--ink); }
+.serif { font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
+.mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+
+/* custom scrollbar — the standard property lives inside @supports so Chrome,
+   which ignores ::-webkit-scrollbar once scrollbar-color is set, still gets it */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-color: var(--ink-faint) var(--paper-deep); scrollbar-width: thin; }
+}
+* { scrollbar-width: thin; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--paper-deep); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 7px; border: 3px solid var(--paper-deep); }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
+/* the spine */
+.spine {
+  position: fixed; inset: 0 auto 0 0; width: 76px;
+  border-right: 1px solid var(--line); display: flex; flex-direction: column;
+  align-items: center; padding: 22px 0; gap: 16px; z-index: 40; background: var(--paper);
+}
+.spine__mark { width: 30px; height: 30px; flex: none; }
+.spine__mark rect { fill: var(--ink); }
+.spine__mark path { stroke: var(--gold); }
+.spine__word { writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: .34em;
+  text-transform: uppercase; font: 500 10px/1 ui-monospace, monospace; color: var(--ink-faint); }
+.spine__rule { flex: 1; width: 1px; background: var(--line); }
+.spine a.spine__gh { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%;
+  display: grid; place-items: center; color: var(--ink-soft); }
+.spine a.spine__gh:hover { border-color: var(--ink-faint); color: var(--ink); }
+.spine__theme { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%;
+  background: transparent; color: var(--ink-soft); cursor: pointer; display: grid; place-items: center; font-size: 13px; }
+.spine__theme:hover { border-color: var(--ink-faint); color: var(--ink); }
+.shell { margin-left: 76px; }
+@media (max-width: 760px) {
+  .spine { position: static; width: auto; flex-direction: row; height: 56px; padding: 0 16px; }
+  .spine__word { writing-mode: horizontal-tb; letter-spacing: .2em; }
+  .spine__rule { flex: 1; height: 1px; width: auto; }
+  .shell { margin-left: 0; }
+}
+
+/* header */
+.head { padding: 72px 7vw 0; }
+.head__inner { max-width: 1120px; }
+.eyebrow { font: 500 11px/1 ui-monospace, monospace; letter-spacing: .28em; text-transform: uppercase; color: var(--rust); margin: 0 0 22px; }
+.head h1 { margin: 0; font-family: ui-serif, "Iowan Old Style", Palatino, Georgia, serif;
+  font-size: clamp(44px, 8vw, 92px); line-height: .92; letter-spacing: -.03em; font-weight: 400; }
+.head h1 em { font-style: italic; color: var(--moss); }
+.head__lede { max-width: 52ch; margin: 26px 0 0; font-size: clamp(16px,2vw,19px); color: var(--ink-soft); }
+.head__lede b { color: var(--ink); font-weight: 600; }
+
+/* package index */
+.toc { position: sticky; top: 0; z-index: 30; background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); padding: 12px 7vw;
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; }
+.toc a { font: 500 12px/1 ui-monospace, monospace; color: var(--ink-soft); text-decoration: none;
+  border: 1px solid var(--line); border-radius: 2px; padding: 6px 11px; }
+.toc a:hover { color: var(--ink); border-color: var(--ink-faint); }
+.toc .toc__lead { font: 500 10px/1 ui-monospace, monospace; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-faint); }
+
+/* packages */
+.pkg { padding: 64px 7vw 0; }
+.pkg h2 { margin: 0 0 6px; font-family: ui-serif, Georgia, serif; font-weight: 400; font-size: clamp(26px,3.4vw,40px); letter-spacing: -.02em; }
+.pkg h2 .num { display: block; font: 400 11px/1 ui-monospace, monospace; letter-spacing: .3em; color: var(--rust); margin-bottom: 14px; }
+.pkg h2 .spec { font: 400 13px/1.4 ui-monospace, monospace; color: var(--ink-faint); letter-spacing: 0; font-style: normal; }
+.pkg-grid { margin-top: 34px; border-top: 1px solid var(--line); }
+
+/* api items */
+.api-item { padding: 26px 0; border-bottom: 1px solid var(--line); }
+.api-item h3 { margin: 0 0 12px; font: 500 19px/1.3 ui-monospace, monospace; letter-spacing: -.01em; display: flex; align-items: center; gap: 12px; }
+.ktag { font: 500 9px/1 ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase;
+  border: 1px solid currentColor; border-radius: 2px; padding: 3px 6px; flex: none; }
+.ktag--fn, .ktag--method { color: var(--moss); }
+.ktag--struct, .ktag--type { color: var(--gold); }
+.ktag--enum { color: var(--rust); }
+.ktag--error { color: var(--rust); }
+.ktag--trait { color: var(--ink-soft); }
+.ktag--value { color: var(--moss); }
+.api-type h3 { font-size: 22px; }
+
+pre.sig { margin: 0; padding: 16px 18px; background: var(--code-bg); border: 1px solid var(--line);
+  border-radius: 2px; overflow-x: auto; font: 400 13px/1.7 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  tab-size: 2; white-space: pre; }
+pre.ex { margin: 14px 0 0; padding: 16px 18px; background: var(--code-bg); border: 1px solid var(--line);
+  border-radius: 2px; overflow-x: auto; font: 400 13px/1.7 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  position: relative; }
+pre.ex .ex-lang { position: absolute; top: 8px; right: 12px; font: 500 9px/1 ui-monospace, monospace;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); }
+pre.ex code { font: inherit; }
+
+.tok-k { color: var(--rust); }
+.tok-s { color: var(--moss); }
+.tok-c { color: var(--ink-faint); font-style: italic; }
+.tok-t { color: var(--gold); }
+
+.api-item p { margin: 12px 0 0; max-width: 72ch; color: var(--ink-soft); font-size: 14.5px; }
+.api-item p code, .fields td code, .params td code, .returns code, .implements code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .9em;
+  background: var(--code-bg); padding: 1px 5px; border-radius: 2px; border: 1px solid var(--line); }
+.xref { color: var(--moss); text-decoration: none; border-bottom: 1px solid var(--line); }
+.xref:hover { border-color: var(--moss); }
+.muted { color: var(--ink-faint); font-style: italic; }
+.returns { color: var(--ink-faint); font-size: 13px; }
+.implements { margin-top: 14px; font: 500 11px/1 ui-monospace, monospace; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-faint); }
+
+.code-head { font: 500 10px/1 ui-monospace, monospace; letter-spacing: .2em; text-transform: uppercase;
+  color: var(--ink-faint); margin: 18px 0 8px; }
+table.fields, table.params { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.fields td, table.params td { text-align: left; padding: 9px 12px 9px 0; vertical-align: top; border-top: 1px solid var(--line); }
+table.fields td:first-child, table.params td:first-child { width: 22%; }
+table.fields td:nth-child(2), table.params td:nth-child(2) { width: 30%; color: var(--ink-soft); }
+.method { margin: 18px 0 0; padding-left: 18px; border-left: 2px solid var(--line); }
+.method h4 { margin: 0 0 8px; font: 500 15px/1 ui-monospace, monospace; color: var(--ink); }
+pre.sig--method, pre.sig--trait { font-size: 12.5px; padding: 12px 14px; }
+
+footer { padding: 54px 7vw 70px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 18px 40px; align-items: baseline;
+  font: 400 12px/1.8 ui-monospace, monospace; color: var(--ink-faint); }
+footer b { color: var(--ink); font-weight: 600; }
+footer a { color: var(--ink-soft); text-decoration: none; border-bottom: 1px solid var(--line); }
+footer a:hover { color: var(--ink); border-color: var(--ink); }
+</style>
+</head>
+<body>
+<nav class="spine" aria-label="Site">
+<svg class="spine__mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32"></rect><path d="M6 10h20M6 16h14M6 22h20" fill="none" stroke-width="3"></path></svg>
+<span class="spine__word">moonzip</span>
+<span class="spine__rule"></span>
+<a class="spine__gh" href="https://github.com/moonbitstack/moonzip" title="GitHub" aria-label="GitHub"><svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+<button class="spine__theme" id="theme" title="Switch theme" aria-label="Switch theme">◐</button>
+</nav>
+<div class="shell">
+<header class="head"><div class="head__inner">
+<p class="eyebrow">MoonBit · the interface</p>
+<h1>Every entry<br><em>point.</em></h1>
+<p class="head__lede">The whole public surface, one block per format. Generated from each package by <code>moon info</code> and the <code>///</code> comments in its source, so what you read is what the compiler checks. New here? Read <a class="xref" href="guide.html">the guide</a> first.</p>
+</div></header>
+<nav class="toc" aria-label="Packages">
+<span class="toc__lead">packages</span>
+<a href="#pkg-moonzip">moonzip</a>
+<a href="#pkg-deflate">deflate</a>
+<a href="#pkg-gzip">gzip</a>
+<a href="#pkg-zlib">zlib</a>
+<a href="#pkg-zip">zip</a>
+<a href="#pkg-tar">tar</a>
+<a href="#pkg-lz4">lz4</a>
+<a href="#pkg-snappy">snappy</a>
+<a href="#pkg-lzma">lzma</a>
+<a href="#pkg-xz">xz</a>
+<a href="#pkg-bzip2">bzip2</a>
+<a href="#pkg-sevenz">sevenz</a>
+<a href="#pkg-zstd">zstd</a>
+<a href="#pkg-brotli">brotli</a>
+</nav>
+<section id="pkg-moonzip" class="pkg"><h2><span class="num">moonzip</span> <em class="spec">— the root — checksums and the refuse signal</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Adler"><span class="ktag ktag--struct">struct</span>Adler</h3><p>The same checksum, taken a piece at a time, for a body that is never held.</p><div class="code-head">fields</div><table class="fields"><tbody><tr><td class="mono">a</td><td class="mono">UInt32</td><td></td></tr><tr><td class="mono">b</td><td class="mono">UInt32</td><td></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Adler-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Adler</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>The checksum itself: <code>b</code> in the high half, <code>a</code> in the low.</p><p class="returns">returns <code>UInt32</code></p></div><div class="method"><h4 id="sym-Adler-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Adler</span>::new() -&gt; <span class="tok-k">Self</span>
+</pre><p>The running state: <code>a</code> starts at one, <code>b</code> at nothing.</p><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Adler-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Adler</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Unit</span>
+</pre><p>Fold a chunk into the running state.</p>
+<p>5552 is the most bytes that can be added before the sums could overflow
+32 bits, so the modulo runs once a block instead of once a byte.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Unit</code></p></div></div><div class="api-item api-type"><h3 id="sym-Castagnoli"><span class="ktag ktag--struct">struct</span>Castagnoli</h3><p>CRC-32C taken a piece at a time, for a body that is never held whole.</p><div class="code-head">fields</div><table class="fields"><tbody><tr><td class="mono">state</td><td class="mono">UInt32</td><td></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Castagnoli-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Castagnoli</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p class="returns">returns <code>UInt32</code></p></div><div class="method"><h4 id="sym-Castagnoli-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Castagnoli</span>::new() -&gt; <span class="tok-k">Self</span>
+</pre><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Castagnoli-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Castagnoli</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Unit</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Unit</code></p></div></div><div class="api-item api-type"><h3 id="sym-Crc"><span class="ktag ktag--struct">struct</span>Crc</h3><p>The same checksum, taken a piece at a time.</p>
+<p>A container that compresses a body it never holds cannot checksum it in one
+call either: the streaming writers in <code>gzip</code> and <code>zip</code> keep one of these
+beside their compressor and hand it each chunk as it goes past.</p><div class="code-head">fields</div><table class="fields"><tbody><tr><td class="mono">state</td><td class="mono">UInt32</td><td></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Crc-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Crc</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>The checksum itself: the state, complemented back.</p><p class="returns">returns <code>UInt32</code></p></div><div class="method"><h4 id="sym-Crc-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Crc</span>::new() -&gt; <span class="tok-k">Self</span>
+</pre><p>The running state: complemented, as the algorithm starts.</p><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Crc-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Crc</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Unit</span>
+</pre><p>Fold a chunk into the running state.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Unit</code></p></div></div><div class="api-item api-type"><h3 id="sym-Refused"><span class="ktag ktag--error">error</span>Refused</h3><p>Why a compressed stream could not be read.</p>
+<p>The offset is where the reader was when it gave up, in bytes from the start
+of the stream — enough to find the damage in a file, which "corrupt data" is
+not.</p><div class="code-head">constructors</div><table class="fields"><tbody><tr><td class="mono">Truncated</td><td class="mono">at~ : Int32</td><td><p>The stream ends in the middle of something.</p></td></tr><tr><td class="mono">Header</td><td class="mono">at~ : Int32, what~ : String</td><td><p>A header field that is not what the format allows: a block type DEFLATE
+does not define, a compression method gzip does not name, a reserved flag.</p></td></tr><tr><td class="mono">Code</td><td class="mono">at~ : Int32</td><td><p>A Huffman code no symbol is assigned to, or a code table that does not add
+up.</p></td></tr><tr><td class="mono">Distance</td><td class="mono">at~ : Int32</td><td><p>A back-reference that reaches before the start of the output.</p></td></tr><tr><td class="mono">Checksum</td><td class="mono">want~ : UInt32, got~ : UInt32</td><td><p>The trailing checksum does not match what was decompressed.</p></td></tr><tr><td class="mono">Length</td><td class="mono">want~ : UInt32, got~ : Int32</td><td><p>The trailing length does not match what was decompressed.</p></td></tr><tr><td class="mono">TooBig</td><td class="mono">limit~ : Int32</td><td><p>The output passed the bound the caller set. A compressed stream says
+nothing about how far it expands, so a reader handling input from
+elsewhere says how much it is prepared to hold.</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Refused-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Refused</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Refused-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Refused</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Refused-output">output</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Refused</span>::output(<span class="tok-k">Self</span>, &amp;Logger) -&gt; <span class="tok-k">Unit</span>
+</pre><p class="muted">Derived trait glue.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">&amp;Logger</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Unit</code></p></div><div class="method"><h4 id="sym-Refused-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Refused</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><div class="method"><h4 id="sym-Refused-to_string">to_string</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Refused</span>::to_string(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">String</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>String</code></p></div><p class="implements">implements Show</p></div><div class="api-item"><h3 id="sym-adler32"><span class="ktag ktag--fn">fn</span>adler32</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> adler32(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>Adler-32 (RFC 1950 §9): two running sums modulo the largest prime below
+65536. Cheaper than a CRC and weaker, which is the trade zlib made.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div><div class="api-item"><h3 id="sym-crc32"><span class="ktag ktag--fn">fn</span>crc32</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> crc32(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>CRC-32 as gzip, ZIP and PNG use it (RFC 1952 §8): the reflected form of the
+IEEE 802.3 polynomial, starting and ending complemented.</p>
+<p>It lives at the root rather than beside one container because two of them
+specify it — <code>gzip</code> puts it in the trailer, <code>zip</code> in every entry's header and
+again in the central directory — and one of them should not have to import
+the other to reach it. When the checksum package in <code>mooncrypt</code> lands, this
+moves there and is re-exported from here.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div><div class="api-item"><h3 id="sym-crc32c"><span class="ktag ktag--fn">fn</span>crc32c</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> crc32c(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>CRC-32C, the Castagnoli polynomial: the checksum that has hardware support on
+every x86 since Nehalem and every ARM since v8, which is why Snappy and iSCSI
+chose it over the older CRC-32 that gzip and ZIP use.</p>
+<p>It lives here beside the other two for the same reason they are here: it is a
+checksum the formats specify, not something a format invents, and a caller
+comparing two of them should find them in one place.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div><div class="api-item"><h3 id="sym-mask_crc32c"><span class="ktag ktag--fn">fn</span>mask_crc32c</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> mask_crc32c(<span class="tok-k">UInt32</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>The mask Snappy applies to a CRC-32C before putting it in a frame, so that a
+checksum never looks like the length in front of it — and so that a reader
+that echoes the bytes back cannot be fooled into accepting them.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">UInt32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div></div></section>
+<section id="pkg-deflate" class="pkg"><h2><span class="num">deflate</span> <em class="spec">— RFC 1951</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Blocks"><span class="ktag ktag--enum">enum</span>Blocks</h3><p>Which block types the writer may emit.</p>
+<p>A DEFLATE stream is a run of blocks, and a block may be stored verbatim,
+coded with the fixed Huffman table, or coded with a table of its own. All
+three are ordinary DEFLATE; they differ only in size.</p><div class="code-head">variants</div><table class="fields"><tbody><tr><td class="mono">Auto</td><td class="mono"></td><td><p>Let the writer choose per block: it writes each candidate, measures, and
+keeps the smallest. This is what zlib does, and on the short bodies a
+response compressor sees the measurement usually lands on fixed — a
+dynamic block must carry its own code tables, which costs more than it
+saves on a few hundred bytes.</p></td></tr><tr><td class="mono">Fixed</td><td class="mono"></td><td><p>Fixed Huffman codes only. Exactly what this library wrote before 0.4.0,
+for a caller whose output bytes are pinned.</p></td></tr><tr><td class="mono">Dynamic</td><td class="mono"></td><td><p>Dynamic Huffman codes only: the writer must carry its own code tables.
+The largest output on text, and the reason to have it on at all.</p></td></tr><tr><td class="mono">Stored</td><td class="mono"></td><td><p>No compression at all: the input verbatim in stored blocks. This is what
+<code>level = 0</code> means, and asking for it by name is the way to say it without
+going through a level.</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Blocks-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Blocks</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Blocks-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Blocks</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Blocks-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Blocks</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item api-type"><h3 id="sym-Reader"><span class="ktag ktag--type">type</span>Reader</h3><p>Decompress a raw DEFLATE stream a piece at a time.</p>
+<p><code>push</code> takes whatever has arrived and hands back whatever it decoded;
+<code>finish</code> says no more is coming, and it is an error for the stream to be
+unfinished when it is called. Between calls the reader holds the input it
+has not got to yet and nothing else — a response body can be decompressed
+as it downloads, without the whole of it, or of the output, being held.</p>
+<p>The one-shot <code>inflate</code> is this reader fed once and finished.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Reader-done">done</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::done(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p>Whether the last block has been read, which is what a container checks
+before it looks for a trailer.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Reader-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Say the stream is complete. An unfinished block is a truncated stream.</p><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Reader-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::new(limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Reader-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Feed a chunk, take the bytes it decoded to.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Reader-rest">rest</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::rest(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Input handed to the reader that the DEFLATE stream did not use, and the
+reader's buffer emptied.</p>
+<p>A container that wraps DEFLATE needs this. The reader stops the moment the
+last block ends, so a gzip trailer or a second member is still sitting in
+the buffer — and the container is the only thing that knows what to do with
+it. <code>gunzip</code> takes its eight-byte trailer from here.</p><p class="returns">returns <code>Bytes</code></p></div></div><div class="api-item api-type"><h3 id="sym-Writer"><span class="ktag ktag--type">type</span>Writer</h3><p>Compress into a DEFLATE stream a piece at a time.</p>
+<p>The point of the streaming writer is that a body need not be held to be
+compressed: <code>push</code> takes whatever has arrived and hands back whatever is
+ready, and the only thing kept between calls is the last 32 KiB — the
+window, which is as far back as a back-reference may reach. A block is
+emitted every 32 KiB of input, and matches may reach back across block
+boundaries into the retained window, exactly as they would in a stream
+written in one piece.</p>
+<p>The stream is not finished until <code>finish</code> is called: that is what writes the
+last block, and a caller who stops pushing without it has an unterminated
+stream.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Writer-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Finish the stream: the last block, and the last bytes of it. Nothing may be
+pushed afterwards.</p><p class="returns">returns <code>Bytes</code></p></div><div class="method"><h4 id="sym-Writer-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::new(level? : <span class="tok-k">Int32</span>, window? : <span class="tok-k">Int32</span>, chain? : <span class="tok-k">Int32</span>, blocks? : <span class="tok-t">Blocks</span>) -&gt; <span class="tok-k">Self</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">chain</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">blocks</td><td class="mono">Blocks</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Writer-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Feed a chunk, take the compressed bytes it produced.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div><div class="api-item"><h3 id="sym-deflate"><span class="ktag ktag--fn">fn</span>deflate</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> deflate(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>, window? : <span class="tok-k">Int32</span>, chain? : <span class="tok-k">Int32</span>, blocks? : <span class="tok-t">Blocks</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress into a DEFLATE stream, one block over the whole input.</p>
+<p>LZ77 finds back-references with a hash chain over the window, capped so the
+search stays linear in the input. <code>blocks</code> decides how the result is coded.</p>
+<p><code>level</code> runs 0 to 9 and means what it means everywhere else: 0 stores the
+input without compressing it, 9 searches hardest, and 6 is the default zlib,
+Go, Python and Node all use. It sets how far back the match finder looks,
+with the same numbers zlib's own table uses.</p>
+<p><code>window</code> is how far a back-reference may reach — 32 KiB is the most DEFLATE
+allows and the only value a reader can be assumed to handle. <code>chain</code> sets
+the search depth directly for a caller who would rather not go through a
+level.</p>
+<p><code>level=0</code> writes stored blocks, which is what "no compression" means
+everywhere; <code>blocks</code> then has nothing to choose between.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">chain</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">blocks</td><td class="mono">Blocks</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-inflate"><span class="ktag ktag--fn">fn</span>inflate</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> inflate(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decompress a raw DEFLATE stream.</p>
+<p>All three block types: stored, fixed Huffman, and the dynamic Huffman blocks
+that carry their own code tables — which is what zlib, gzip and every browser
+actually emit, so a reader without them reads almost nothing.</p>
+<p><code>limit</code> bounds the output. A compressed stream says nothing about how much it
+expands to, and a small one can expand to more memory than the machine has;
+a reader handling input from elsewhere should say how much it is prepared to
+hold. Unbounded by default, which is what every library does.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div></div></section>
+<section id="pkg-gzip" class="pkg"><h2><span class="num">gzip</span> <em class="spec">— RFC 1952</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Reader"><span class="ktag ktag--type">type</span>Reader</h3><p>A gzip reader that takes the stream a piece at a time.</p>
+<p>The header is gathered across pushes, because a chunk boundary can fall
+anywhere in it, and the trailer is checked when the body ends. One member
+only: a stream of concatenated members is what <code>gunzip</code> walks, since it
+has the whole thing in hand and knows where the next member starts.</p>
+<p>The checks are the ones <code>gunzip</code> offers, and each has the same default and
+the same reason.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Reader-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Say the stream is complete: check the trailer, or say why it cannot be.</p><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Reader-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::new(checksum? : <span class="tok-k">Bool</span>, length? : <span class="tok-k">Bool</span>, header_crc? : <span class="tok-k">Bool</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A reader with the same checks <code>gunzip</code> offers.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">checksum</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">length</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">header_crc</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Reader-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Feed a chunk of the stream, take the bytes it decompressed to.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div></div><div class="api-item api-type"><h3 id="sym-Writer"><span class="ktag ktag--type">type</span>Writer</h3><p>A gzip writer that takes the body a piece at a time.</p>
+<p>This is the shape a response compressor wants: the header goes out with the
+first chunk, each chunk is compressed and handed straight back, and the
+trailer is written when the body is declared over. Neither the body nor the
+compressed form is ever held whole — only the 32 KiB window the compressor
+needs for its back-references and the four bytes of running checksum.</p>
+<pre class="ex"> <span class="ex-lang">mbt nocheck</span><code><span class="tok-k">let</span> w = @gzip.<span class="tok-t">Writer</span>::new(level=9)
+<span class="tok-k">let</span> <span class="tok-k">mut</span> out : <span class="tok-t">Array</span>[<span class="tok-t">Byte</span>] = []
+<span class="tok-k">for</span> part in parts {
+<span class="tok-k">for</span> b in w.push(part[:]) {
+out.push(b)
+}
+}
+<span class="tok-k">for</span> b in w.finish() {
+out.push(b)
+}</code></pre><div class="code-head">methods</div><div class="method"><h4 id="sym-Writer-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Finish the stream: whatever the compressor still holds, then the trailer.
+Nothing may be pushed afterwards.</p><p class="returns">returns <code>Bytes</code></p></div><div class="method"><h4 id="sym-Writer-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::new(level? : <span class="tok-k">Int32</span>, window? : <span class="tok-k">Int32</span>, chain? : <span class="tok-k">Int32</span>, mtime? : <span class="tok-k">UInt32</span>, name? : <span class="tok-k">String</span>, comment? : <span class="tok-k">String</span>, os? : <span class="tok-k">Int32</span>, blocks? : @deflate.<span class="tok-t">Blocks</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A writer whose header says what <code>gzip</code> would have been told.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">chain</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">mtime</td><td class="mono">UInt32</td><td>labelled, optional</td></tr><tr><td class="mono">name</td><td class="mono">String</td><td>labelled, optional</td></tr><tr><td class="mono">comment</td><td class="mono">String</td><td>labelled, optional</td></tr><tr><td class="mono">os</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">blocks</td><td class="mono">@deflate.Blocks</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Writer-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress a chunk and take the compressed bytes it produced, the header
+included the first time anything comes out.</p>
+<p>Nothing may come back for a while on a small body: the compressor holds
+input until it has a block's worth, which is what makes the output small.
+All of it comes back by <a class="xref" href="#Writer::finish"><code>finish</code></a>.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div><div class="api-item"><h3 id="sym-crc32"><span class="ktag ktag--fn">fn</span>crc32</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> crc32(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>CRC-32, where the container that specifies it names it.</p>
+<p>The implementation is <code>@moonzip.crc32</code>: <code>zip</code> writes the same checksum, and
+neither container should have to import the other to reach it.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div><div class="api-item"><h3 id="sym-gunzip"><span class="ktag ktag--fn">fn</span>gunzip</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> gunzip(<span class="tok-t">BytesView</span>, checksum? : <span class="tok-k">Bool</span>, length? : <span class="tok-k">Bool</span>, header_crc? : <span class="tok-k">Bool</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read a gzip container and decompress what is in it.</p>
+<p>The trailing CRC-32 and length are checked, because a container that carries
+a checksum and does not look at it is not a container. Each check is a
+parameter for the cases where a stream is known to be truncated and the part
+that arrived is still wanted.</p>
+<p><code>limit</code> bounds the output, for a stream that came from elsewhere.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">checksum</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">length</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">header_crc</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-gzip"><span class="ktag ktag--fn">fn</span>gzip</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> gzip(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>, window? : <span class="tok-k">Int32</span>, chain? : <span class="tok-k">Int32</span>, mtime? : <span class="tok-k">UInt32</span>, name? : <span class="tok-k">String</span>, comment? : <span class="tok-k">String</span>, os? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Wrap DEFLATE output in a gzip container.</p>
+<p>The modification time is zero and the name is absent unless asked for, so
+the same input gives the same bytes. A compressor that stamped the clock
+would make a build unreproducible and a cache entry never match — which is
+why Go's <code>gzip.Writer</code> also writes zero unless told otherwise. Set <code>mtime</code>
+when the output is a file that should carry one.</p>
+<p><code>level</code>, <code>window</code> and <code>chain</code> go straight through to the compressor.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">chain</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">mtime</td><td class="mono">UInt32</td><td>labelled, optional</td></tr><tr><td class="mono">name</td><td class="mono">String</td><td>labelled, optional</td></tr><tr><td class="mono">comment</td><td class="mono">String</td><td>labelled, optional</td></tr><tr><td class="mono">os</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div></section>
+<section id="pkg-zlib" class="pkg"><h2><span class="num">zlib</span> <em class="spec">— RFC 1950</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Reader"><span class="ktag ktag--type">type</span>Reader</h3><p>A zlib reader that takes the stream a piece at a time.</p>
+<p>Two bytes of header, then DEFLATE, then four bytes of checksum — and the
+header can be split across two pushes, which is why the reader keeps them
+rather than assuming a chunk is at least that long.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Reader-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Say the stream is complete: check the checksum, or say why it cannot be.</p><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Reader-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::new(checksum? : <span class="tok-k">Bool</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A reader with the same checks <code>unzlib</code> offers.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">checksum</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Reader-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Feed a chunk of the stream, take the bytes it decompressed to.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Reader-window">window</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::window(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Int32</span>
+</pre><p>The window the stream's header declared, in bytes.</p><p class="returns">returns <code>Int32</code></p></div></div><div class="api-item api-type"><h3 id="sym-Writer"><span class="ktag ktag--type">type</span>Writer</h3><p>A zlib writer that takes the body a piece at a time.</p>
+<p>The two-byte header goes out with the first chunk, each chunk is compressed
+and handed straight back, and the big-endian Adler-32 goes out when the body
+is declared over. <code>zlib</code> is the container HTTP calls <code>deflate</code>, so this is
+what a server compressing a response body wants beside it.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Writer-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Finish the stream: what the compressor still holds, then the checksum.</p><p class="returns">returns <code>Bytes</code></p></div><div class="method"><h4 id="sym-Writer-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::new(level? : <span class="tok-k">Int32</span>, window? : <span class="tok-k">Int32</span>, chain? : <span class="tok-k">Int32</span>, blocks? : @deflate.<span class="tok-t">Blocks</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A writer whose header says what <code>zlib</code> would have been told.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">chain</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">blocks</td><td class="mono">@deflate.Blocks</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Writer-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress a chunk and take what it produced, the header included the first
+time anything comes out.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div><div class="api-item"><h3 id="sym-adler32"><span class="ktag ktag--fn">fn</span>adler32</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> adler32(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>Adler-32, where the container that specifies it names it.</p>
+<p>The implementation is <code>@moonzip.adler32</code>; keeping it here as well means a
+caller who has the container in hand does not have to reach for the root
+package to checksum what it read.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div><div class="api-item"><h3 id="sym-unzlib"><span class="ktag ktag--fn">fn</span>unzlib</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unzlib(<span class="tok-t">BytesView</span>, checksum? : <span class="tok-k">Bool</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read a zlib container and decompress what is in it.</p>
+<p><code>checksum</code> is what makes it a container rather than a wrapper; <code>limit</code>
+bounds the output, for a stream that came from elsewhere.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">checksum</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-zlib"><span class="ktag ktag--fn">fn</span>zlib</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> zlib(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>, window? : <span class="tok-k">Int32</span>, chain? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Wrap DEFLATE output in a zlib container.</p>
+<p>This, not raw DEFLATE, is what HTTP's <code>Content-Encoding: deflate</code> was
+specified to mean — a detail that half the servers on the web got wrong,
+which is why <code>gzip</code> won.
+<code>level</code>, <code>window</code> and <code>chain</code> go straight through to the compressor; the
+header says which window was used, so a reader knows how much history it
+must keep.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">chain</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div></section>
+<section id="pkg-zip" class="pkg"><h2><span class="num">zip</span> <em class="spec">— APPNOTE 6.3</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Codec"><span class="ktag ktag--trait">trait</span>Codec</h3><div class="code-head">required methods</div><pre class="sig sig--trait"><span class="tok-k">fn</span> id(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Int32</span></pre><pre class="sig sig--trait"><span class="tok-k">fn</span> pack(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span></pre><pre class="sig sig--trait"><span class="tok-k">fn</span> unpack(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>, <span class="tok-k">Int32</span>?) -&gt; <span class="tok-k">Bytes</span></pre></div><div class="api-item api-type"><h3 id="sym-Entry"><span class="ktag ktag--struct">struct</span>Entry</h3><p>One member of an archive.</p>
+<p><code>data</code> is the content itself: decompressed when read, as-is when written.
+An archive is a directory of whole files, so handing back half of one would
+be handing back something that is not the file.</p><div class="code-head">fields</div><table class="fields"><tbody><tr><td class="mono">name</td><td class="mono">String</td><td><p>The path inside the archive, with forward slashes — APPNOTE.TXT §4.4.17
+says so, on every platform.</p></td></tr><tr><td class="mono">data</td><td class="mono">Bytes</td><td><p>The content.</p></td></tr><tr><td class="mono">kind</td><td class="mono">Kind</td><td><p>How it is held.</p></td></tr><tr><td class="mono">mtime</td><td class="mono">Int64</td><td><p>Last modification, in Unix seconds. ZIP records MS-DOS date and time,
+which has two-second resolution and no zone, so a value read back is the
+one that was written rounded down to an even second.</p></td></tr><tr><td class="mono">comment</td><td class="mono">String</td><td><p>The per-entry comment, which most archives leave empty.</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Entry-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Entry-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::new(<span class="tok-k">String</span>, <span class="tok-k">Bytes</span>, kind? : <span class="tok-t">Kind</span>, mtime? : <span class="tok-k">Int64</span>, comment? : <span class="tok-k">String</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>An entry with only a name and its content, deflated, stamped at the epoch.</p>
+<p>The epoch rather than the clock: a library has no clock, and an archive that
+stamped the time would give different bytes for the same input and make a
+build unreproducible. A caller with a real modification time passes it.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Bytes</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">kind</td><td class="mono">Kind</td><td>labelled, optional</td></tr><tr><td class="mono">mtime</td><td class="mono">Int64</td><td>labelled, optional</td></tr><tr><td class="mono">comment</td><td class="mono">String</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Entry-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Entry-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item api-type"><h3 id="sym-Kind"><span class="ktag ktag--enum">enum</span>Kind</h3><p>How an entry's bytes are held in the archive.</p>
+<p>The format calls it the compression method; the field is <code>kind</code>, which is
+what this family calls "which variant of this enum" and is not a word
+MoonBit reserves.</p>
+<p>The two that are actually in use. APPNOTE.TXT names a dozen more — shrink,
+implode, six reduce levels — and no tool has written one since the 1990s; a
+reader that meets one refuses it rather than guessing.</p><div class="code-head">variants</div><table class="fields"><tbody><tr><td class="mono">Stored</td><td class="mono"></td><td><p>Not compressed. What an already-compressed member should use: running
+DEFLATE over a JPEG costs time and makes it bigger.</p></td></tr><tr><td class="mono">Deflated</td><td class="mono"></td><td><p>DEFLATE, which is what every archive in the wild uses for everything else.</p></td></tr><tr><td class="mono">Other</td><td class="mono">Int32</td><td><p>A method this package does not implement, by its APPNOTE.TXT number —
+bzip2 is 12, LZMA is 14. A <code>Codec</code> handles it; without one, reading such
+an entry is refused rather than guessed at.</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Kind-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Kind</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Kind-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Kind</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Kind-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Kind</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item api-type"><h3 id="sym-Reader"><span class="ktag ktag--type">type</span>Reader</h3><p>Walk an archive from the front, one member at a time.</p>
+<p><code>unzip</code> reads the central directory at the end, which is what a file on
+disk allows and what makes an entry addressable by name. A reader that is
+*receiving* an archive — from a socket, from a pipe, out of a decompressor —
+has no end to seek to, and the local headers are all it has. This is that
+reader.</p>
+<p>It also reads what a streaming writer writes: an entry whose checksum and
+sizes sit in a data descriptor after its data rather than in its header.
+That case is why this reader feeds DEFLATE until the stream says it has
+ended instead of trusting a length in front of it.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Reader-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::new(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A reader at the start of <code>archive</code>.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Reader-next">next</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::next(<span class="tok-k">Self</span>, limit? : <span class="tok-k">Int32</span>, codecs? : <span class="tok-t">ArrayView</span>[&amp;Codec], password? : <span class="tok-k">String</span>) -&gt; <span class="tok-t">Entry</span>? <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>The next member, or <code>None</code> when the members have run out.</p>
+<p><code>limit</code> bounds what one member may expand to, as everywhere else.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">codecs</td><td class="mono">ArrayView[&amp;Codec]</td><td>labelled, optional</td></tr><tr><td class="mono">password</td><td class="mono">String</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Entry?</code> · raises <code>@moonzip.Refused</code></p></div></div><div class="api-item api-type"><h3 id="sym-Writer"><span class="ktag ktag--type">type</span>Writer</h3><p>Build an archive a member at a time.</p>
+<p><code>zip</code> is this writer with every entry added and then finished, which is
+the shape a caller with the whole archive in hand wants. A caller that is
+receiving members one at a time — a backup running, a directory being
+walked — wants this instead: <code>add</code> hands back the bytes for that member
+immediately, and only the central directory waits for the end.</p>
+<p>Three knobs decide the bytes beyond the content itself:</p>
+<p><code>zip64</code> widens the size and offset fields to sixty-four bits. It turns
+itself on when an entry or an offset does not fit in thirty-two, which is
+the only reason it exists; forcing it is for a caller whose reader expects
+the wider form.</p>
+<p><code>descriptor</code> puts each entry's checksum and sizes after its data instead of
+in its local header (APPNOTE.TXT §4.3.9). That is what a writer that streams
+a member it has not finished reading must do — it cannot know the sizes when
+it writes the header — and it costs twelve bytes a member.</p>
+<p><code>password?</code> encrypts each member with ZipCrypto, which is what the format
+called encryption for fifteen years. It is not a security boundary; see
+<a class="xref" href="#zipcrypt_encrypt"><code>zipcrypt_encrypt</code></a>.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Writer-add">add</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::add(<span class="tok-k">Self</span>, <span class="tok-t">Entry</span>, codecs? : <span class="tok-t">ArrayView</span>[&amp;Codec]) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Add a member and take the bytes it occupies: a local header, its data, and a
+data descriptor if one was asked for.</p>
+<p>The compressed form is kept only if it is smaller than the input. A member
+that grew by being compressed is stored instead, which is what <code>zip</code> itself
+does and what makes an archive of already-compressed files the size of the
+files.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">Entry</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">codecs</td><td class="mono">ArrayView[&amp;Codec]</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="method"><h4 id="sym-Writer-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Close the archive: the central directory, then the end record — and the
+Zip64 end record and its locator as well if any entry needed widening.</p><p class="returns">returns <code>Bytes</code></p></div><div class="method"><h4 id="sym-Writer-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::new(level? : <span class="tok-k">Int32</span>, zip64? : <span class="tok-k">Bool</span>, descriptor? : <span class="tok-k">Bool</span>, password? : <span class="tok-k">String</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A writer that has written nothing yet.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">zip64</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">descriptor</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">password</td><td class="mono">String</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div></div><div class="api-item"><h3 id="sym-entry"><span class="ktag ktag--fn">fn</span>entry</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> entry(<span class="tok-t">BytesView</span>, <span class="tok-k">String</span>, limit? : <span class="tok-k">Int32</span>, codecs? : <span class="tok-t">ArrayView</span>[&amp;Codec], password? : <span class="tok-k">String</span>) -&gt; <span class="tok-t">Entry</span>? <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>One entry by name, expanding only that one.</p>
+<p><code>None</code> for a name the archive does not hold — asking whether something is in
+an archive is a question, not a failure. A name that is there but whose
+content is damaged still raises: that is a broken archive, not an absent
+member.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">codecs</td><td class="mono">ArrayView[&amp;Codec]</td><td>labelled, optional</td></tr><tr><td class="mono">password</td><td class="mono">String</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Entry?</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-level"><span class="ktag ktag--value">value</span>level</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">let</span> level : <span class="tok-k">Int32</span>
+</pre></div><div class="api-item"><h3 id="sym-names"><span class="ktag ktag--fn">fn</span>names</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> names(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-t">Array</span>[<span class="tok-k">String</span>] <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Every entry's name, without decompressing anything.</p>
+<p>The central directory is a table at the end of the archive that names every
+member; reading it costs nothing next to expanding them. This is what a
+caller listing an archive wants, and what <code>zipfile.namelist()</code> is.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Array[String]</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-unzip"><span class="ktag ktag--fn">fn</span>unzip</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unzip(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>, codecs? : <span class="tok-t">ArrayView</span>[&amp;Codec], password? : <span class="tok-k">String</span>) -&gt; <span class="tok-t">Array</span>[<span class="tok-t">Entry</span>] <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Every entry, expanded.</p>
+<p><code>limit</code> bounds what one entry may expand to. An archive is worth bounding
+even more than a single stream is: a few kilobytes of archive can declare a
+hundred members that each claim to be a gigabyte.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">codecs</td><td class="mono">ArrayView[&amp;Codec]</td><td>labelled, optional</td></tr><tr><td class="mono">password</td><td class="mono">String</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Array[Entry]</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-zip"><span class="ktag ktag--fn">fn</span>zip</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> zip(<span class="tok-t">ArrayView</span>[<span class="tok-t">Entry</span>], level? : <span class="tok-k">Int32</span>, codecs? : <span class="tok-t">ArrayView</span>[&amp;Codec], zip64? : <span class="tok-k">Bool</span>, descriptor? : <span class="tok-k">Bool</span>, password? : <span class="tok-k">String</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Write an archive.</p>
+<p>Entries are written in the order they are given, each with a local header,
+then the central directory, then the end record — the layout APPNOTE.TXT
+describes and the one every reader expects.</p>
+<p><code>level</code> reaches the compressor for the deflated entries; <code>Stored</code> ones carry
+their bytes unchanged. An entry that deflates to no less than it started as
+is stored instead, which is what <code>zip</code> itself does: a member should never
+grow by being compressed.</p>
+<p><code>zip64</code>, <code>descriptor</code> and <code>password</code> are the <a class="xref" href="#Writer"><code>Writer</code></a>'s knobs, and
+they mean the same thing here. This function is that writer with every entry
+in hand at once.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">ArrayView[Entry]</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">codecs</td><td class="mono">ArrayView[&amp;Codec]</td><td>labelled, optional</td></tr><tr><td class="mono">zip64</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">descriptor</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">password</td><td class="mono">String</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-zipcrypt_decrypt"><span class="ktag ktag--fn">fn</span>zipcrypt_decrypt</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> zipcrypt_decrypt(<span class="tok-t">BytesView</span>, <span class="tok-k">String</span>, <span class="tok-t">Byte</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decrypt what <a class="xref" href="#zipcrypt_encrypt"><code>zipcrypt_encrypt</code></a> wrote.</p>
+<p>The check byte is compared before any of the body is handed back, so a wrong
+password says so instead of turning into a decompressor error three layers
+further in — which is the difference between "you typed the password wrong"
+and "this archive is damaged".</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Byte</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-zipcrypt_encrypt"><span class="ktag ktag--fn">fn</span>zipcrypt_encrypt</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> zipcrypt_encrypt(<span class="tok-t">BytesView</span>, <span class="tok-k">String</span>, <span class="tok-k">String</span>, <span class="tok-k">Int64</span>, <span class="tok-t">Byte</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Encrypt <code>data</code> under <code>password</code>.</p>
+<p><code>check</code> is the byte a reader compares after decrypting the header: the high
+byte of the CRC-32, or — when the entry's sizes are in a data descriptor
+rather than its local header — the high byte of the MS-DOS time. The caller
+knows which, because the caller owns the flags.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int64</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Byte</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div></section>
+<section id="pkg-tar" class="pkg"><h2><span class="num">tar</span> <em class="spec">— POSIX pax</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Entry"><span class="ktag ktag--struct">struct</span>Entry</h3><p>One member of an archive.</p><div class="code-head">fields</div><table class="fields"><tbody><tr><td class="mono">name</td><td class="mono">String</td><td><p>The path inside the archive, with forward slashes.</p></td></tr><tr><td class="mono">data</td><td class="mono">Bytes</td><td><p>The content. Empty for anything that is not a file.</p></td></tr><tr><td class="mono">kind</td><td class="mono">Tarball</td><td><p>What it is.</p></td></tr><tr><td class="mono">mode</td><td class="mono">Int32</td><td><p>Permission bits, which tar keeps as a whole 07777 — setuid and sticky
+included, because a tar that dropped them could not restore <code>/usr/bin</code>.</p></td></tr><tr><td class="mono">mtime</td><td class="mono">Int64</td><td><p>Last modification, in Unix seconds.</p></td></tr><tr><td class="mono">uid</td><td class="mono">Int32</td><td></td></tr><tr><td class="mono">gid</td><td class="mono">Int32</td><td></td></tr><tr><td class="mono">uname</td><td class="mono">String</td><td><p>The owner's name, which is what a reader prefers over the number when the
+archive is restored on a different machine.</p></td></tr><tr><td class="mono">gname</td><td class="mono">String</td><td><p>The group's name.</p></td></tr><tr><td class="mono">link</td><td class="mono">String</td><td><p>The target of a link.</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Entry-directory">directory</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::directory(<span class="tok-k">String</span>, mode? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A directory entry.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">mode</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Entry-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Entry-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::new(<span class="tok-k">String</span>, <span class="tok-k">Bytes</span>, kind? : <span class="tok-t">Tarball</span>, mode? : <span class="tok-k">Int32</span>, mtime? : <span class="tok-k">Int64</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A file with only a name and its content.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Bytes</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">kind</td><td class="mono">Tarball</td><td>labelled, optional</td></tr><tr><td class="mono">mode</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">mtime</td><td class="mono">Int64</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Entry-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Entry-symlink">symlink</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::symlink(<span class="tok-k">String</span>, <span class="tok-k">String</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A symbolic link.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Entry-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item api-type"><h3 id="sym-Tarball"><span class="ktag ktag--enum">enum</span>Tarball</h3><p>What a member of an archive is.</p>
+<p>tar carries more than files: a directory, a symbolic link, a hard link to a
+member further up, and the three device nodes. The ones a caller is likely to
+meet are here; the rest are kept as <a class="xref" href="#Other"><code>Other</code></a> so that reading an
+archive with a device node in it does not fail, and so that writing one back
+out produces what came in.</p><div class="code-head">variants</div><table class="fields"><tbody><tr><td class="mono">File</td><td class="mono"></td><td><p>A regular file. The only one with bytes in it.</p></td></tr><tr><td class="mono">Directory</td><td class="mono"></td><td><p>A directory. Its name ends with a slash and its size is zero.</p></td></tr><tr><td class="mono">Symlink</td><td class="mono"></td><td><p>A symbolic link, whose target is in the entry's <code>link</code> field.</p></td></tr><tr><td class="mono">Hardlink</td><td class="mono"></td><td><p>A hard link to a member already in the archive, by the name in <code>link</code>.</p></td></tr><tr><td class="mono">Other</td><td class="mono">Byte</td><td><p>A character or block device, a FIFO, or a type this package does not name.</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Tarball-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Tarball</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Tarball-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Tarball</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Tarball-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Tarball</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item"><h3 id="sym-names"><span class="ktag ktag--fn">fn</span>names</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> names(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-t">Array</span>[<span class="tok-k">String</span>] <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Every entry's name, which still has to walk the archive: tar has no index.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Array[String]</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-tar"><span class="ktag ktag--fn">fn</span>tar</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> tar(<span class="tok-t">ArrayView</span>[<span class="tok-t">Entry</span>]) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Write an archive.</p>
+<p>Members go out in the order they are given, each as a header, its bytes
+padded to a block boundary, then two empty blocks to say the archive is over.</p>
+<p>A name longer than a hundred bytes is carried in a pax extended header,
+which is a member of its own whose content is a list of <code>keyword=value</code>
+records. That is the POSIX answer, and it is what GNU tar and bsdtar both
+read; the older GNU <code>L</code> record is read but not written, because one way to
+say a thing is enough.</p>
+<p>The archive is reproducible: the modification time comes from the entry and
+the owner is nobody, so the same entries always give the same bytes. Set
+<code>mtime</code> and <code>uid</code> on an entry when it should carry something else.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">ArrayView[Entry]</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-targz"><span class="ktag ktag--fn">fn</span>targz</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> targz(<span class="tok-t">ArrayView</span>[<span class="tok-t">Entry</span>], level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>A tarball: the archive gzipped, which is what <code>.tar.gz</code> and <code>.tgz</code> are.</p>
+<p>The two formats stack cleanly — gzip compresses the bytes, and the bytes are
+a tar archive — so this is three lines rather than a format of its own. The
+compression is of the whole archive, which is why a tarball compresses far
+better than the same files compressed one at a time: gzip sees every member's
+redundancy, not just each member's own.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">ArrayView[Entry]</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-untar"><span class="ktag ktag--fn">fn</span>untar</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> untar(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-t">Array</span>[<span class="tok-t">Entry</span>] <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read an archive.</p>
+<p>Both ustar and pax come out, and the GNU long-name records that older
+archives use are understood on the way. <code>limit</code> bounds what one member may
+expand to, and tar needs it more than most: an archive is a header claiming a
+length, and a header can claim anything.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Array[Entry]</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-untargz"><span class="ktag ktag--fn">fn</span>untargz</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> untargz(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-t">Array</span>[<span class="tok-t">Entry</span>] <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read a tarball.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Array[Entry]</code> · raises <code>@moonzip.Refused</code></p></div></div></section>
+<section id="pkg-lz4" class="pkg"><h2><span class="num">lz4</span> <em class="spec">— block + frame</em><div class="pkg-grid"><div class="api-item"><h3 id="sym-frame"><span class="ktag ktag--fn">fn</span>frame</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> frame(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Wrap LZ4 blocks in a frame: a header, the blocks, an end mark and a content
+checksum.</p>
+<p>Blocks are independent, so a decoder can start at any of them; the content
+checksum is over the original bytes rather than the compressed ones, so it
+catches a decoder that produced the wrong thing rather than only a link that
+flipped a bit.</p>
+<p>A block that does not compress is stored as it is with the high bit of its
+length set, which is how the format says "this one is verbatim".</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-lz4"><span class="ktag ktag--fn">fn</span>lz4</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> lz4(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress into the LZ4 block format.</p>
+<p>A block is a run of sequences. Each is a token whose high nibble is how many
+literals follow and whose low nibble is the match length minus four, then the
+literals, then a two-byte back-reference, then the match length's overflow
+bytes. The last sequence carries literals only, and the format reserves the
+last five bytes of the input for them — a decoder relies on both, which is
+why <code>match_start</code> stops twelve bytes short of the end.</p>
+<p><code>level</code> picks the search depth: 0 uses one candidate per position, which is
+what LZ4's own "fast" mode does; higher values walk a chain. The ratio gain
+above the default is small and the cost is real — this is a format chosen for
+speed.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-unframe"><span class="ktag ktag--fn">fn</span>unframe</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unframe(<span class="tok-t">BytesView</span>, checksum? : <span class="tok-k">Bool</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read a frame back.</p>
+<p><code>checksum</code> is what turns "some bytes came out" into "the right bytes came
+out"; a caller recovering what it can from a damaged transfer turns it off.
+A skippable frame — the format's way of saying "not mine, step over it" — is
+stepped over rather than refused.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">checksum</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-unlz4"><span class="ktag ktag--fn">fn</span>unlz4</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unlz4(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decompress an LZ4 block.</p>
+<p>There is no length in the format, so <code>limit</code> is the only thing standing
+between a hostile block and the heap.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-xxh32"><span class="ktag ktag--fn">fn</span>xxh32</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> xxh32(<span class="tok-t">BytesView</span>, seed? : <span class="tok-k">UInt32</span>) -&gt; <span class="tok-k">UInt32</span>
+</pre><p>The hash itself.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">seed</td><td class="mono">UInt32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div></div></section>
+<section id="pkg-snappy" class="pkg"><h2><span class="num">snappy</span> <em class="spec">— block + framing v2</em><div class="pkg-grid"><div class="api-item"><h3 id="sym-frame"><span class="ktag ktag--fn">fn</span>frame</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> frame(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Wrap Snappy blocks in the framing format.</p>
+<p>The stream identifier comes first, then a chunk per sixty-four kilobytes —
+compressed with a masked CRC-32C when compressing helped, verbatim with one
+when it did not. A chunk that grew would be a chunk that cost time to decode
+and bytes to store, so the format has a way to say "verbatim" and this uses
+it.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-snappy"><span class="ktag ktag--fn">fn</span>snappy</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> snappy(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress into the Snappy block format.</p>
+<p>A block starts with the uncompressed length as a varint — the one thing a
+decoder is told up front, and the reason Snappy needs no bound of its own to
+be safe — and then a run of tags. A tag is a literal or a copy, and its two
+low bits say which: <code>00</code> a literal, <code>01</code> a copy with an eleven-bit offset,
+<code>10</code> one with a sixteen-bit offset, <code>11</code> one with a thirty-two-bit offset.
+The three copy forms exist so that the common cases cost two bytes.</p>
+<p>The compressor is greedy: one candidate per position from a hash of four
+bytes, extended as far as it runs. Snappy's own encoder is not much cleverer,
+because the format's whole point is that decompression be quick.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-unframe"><span class="ktag ktag--fn">fn</span>unframe</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unframe(<span class="tok-t">BytesView</span>, checksum? : <span class="tok-k">Bool</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read a framed stream back.</p>
+<p><code>checksum</code> is what makes the CRC-32C in each chunk mean something; a caller
+recovering what arrived from a broken transfer turns it off. A skippable chunk
+— the format's way of letting a caller put its own data in the middle — is
+stepped over, and an unskippable one is refused, because that is the
+difference the two ranges of type numbers exist to make.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">checksum</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-unsnappy"><span class="ktag ktag--fn">fn</span>unsnappy</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unsnappy(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decompress a Snappy block.</p>
+<p>The length in front is a claim, not a fact, so <code>limit</code> still applies: a
+sixteen-byte block can claim four gigabytes. The claim is also what lets this
+reader refuse a stream that ends early rather than return what it got.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div></div></section>
+<section id="pkg-lzma" class="pkg"><h2><span class="num">lzma</span> <em class="spec">— LZMA SDK</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Decoder"><span class="ktag ktag--type">type</span>Decoder</h3><p>A decoder that can be fed a stream in pieces, which is what LZMA2 needs: the
+dictionary and the learned probabilities survive across chunks, and only the
+range coder restarts.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Decoder-append">append</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::append(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Unit</span>
+</pre><p>Append bytes decoded elsewhere — an LZMA2 chunk that was stored rather than
+ranged-coded still belongs in the dictionary, or the next chunk's matches
+would land on the wrong bytes.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Unit</code></p></div><div class="method"><h4 id="sym-Decoder-feed">feed</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::feed(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>, <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Int32</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decode until <code>want</code> bytes have been produced, or — when <code>want</code> is negative —
+until the end marker. Returns the number produced by this call.</p>
+<p>Everything is measured against <code>out</code>, which is both the answer and the
+dictionary: a back-reference is an index into what has already been produced,
+so there is nothing else to keep.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Int32</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Decoder-length">length</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::length(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Int32</span>
+</pre><p>How much has been produced — the mark a caller keeps before a chunk.</p><p class="returns">returns <code>Int32</code></p></div><div class="method"><h4 id="sym-Decoder-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::new(limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><p>A decoder with the default probabilities and nothing decoded.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Decoder-output">output</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::output(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>The bytes decoded so far, which for a container is also the dictionary.</p><p class="returns">returns <code>Bytes</code></p></div><div class="method"><h4 id="sym-Decoder-properties">properties</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::properties(<span class="tok-k">Self</span>, <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Unit</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Adopt a properties byte: literally <code>pb * 5 * 9 + lp * 9 + lc</code>, which is how
+LZMA packs three small numbers into one.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Unit</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Decoder-reset">reset</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::reset(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Unit</span>
+</pre><p>Forget everything but the model's shape: the start of a stream, or a dictionary
+reset in LZMA2.</p><p class="returns">returns <code>Unit</code></p></div><div class="method"><h4 id="sym-Decoder-since">since</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Decoder</span>::since(<span class="tok-k">Self</span>, <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>The bytes produced since <code>mark</code>, which is how a chunk's output is taken
+without copying the whole dictionary.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div><div class="api-item"><h3 id="sym-decoded_dict"><span class="ktag ktag--fn">fn</span>decoded_dict</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> decoded_dict(<span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Int32</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Int32</code></p></div><div class="api-item"><h3 id="sym-dict_code"><span class="ktag ktag--fn">fn</span>dict_code</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> dict_code(<span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Int32</span>
+</pre><p>The LZMA2 dictionary-size code: the smallest property whose decoded size is at
+least what was asked for, because a decoder has to know how much memory to
+reserve before it starts.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Int32</code></p></div><div class="api-item"><h3 id="sym-dictionary_for"><span class="ktag ktag--fn">fn</span>dictionary_for</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> dictionary_for(<span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Int32</span>
+</pre><p>The dictionary size a level asks for. It bounds how far back a match may
+reach, and therefore how much a decoder must hold; 8 MiB at the top is what
+<code>xz -9</code> uses.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Int32</code></p></div><div class="api-item"><h3 id="sym-encode"><span class="ktag ktag--fn">fn</span>encode</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> encode(<span class="tok-t">BytesView</span>, <span class="tok-k">Int32</span>, <span class="tok-k">Int32</span>, level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress with LZMA, using the given properties and dictionary size.</p>
+<p>The match finder is a hash chain over three bytes, walked greedily: the first
+match of three or more bytes wins, and the repeat distance is tried before the
+chain because it costs a handful of bits instead of a distance. That is a
+long way from an optimal parse, and it is the same order of effort zlib's own
+level six makes — the point here is a stream that real decoders read, not the
+last three percent.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-lzma"><span class="ktag ktag--fn">fn</span>lzma</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> lzma(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress into the <code>.lzma</code> "alone" container: thirteen bytes of header, then
+the range-coded stream.</p>
+<p>The header says the properties (how many context bits the literals use), the
+dictionary size, and the uncompressed size — which is written, so the stream
+does not need an end marker. <code>level</code> maps to the same presets <code>xz</code> uses, and
+the dictionary is capped at what a decoder can be asked to hold.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-lzma2"><span class="ktag ktag--fn">fn</span>lzma2</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> lzma2(<span class="tok-t">BytesView</span>, <span class="tok-k">Int32</span>, <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>LZMA2: LZMA in chunks, each with its own range coder, and a control byte that
+says how much state to throw away first.</p>
+<p>Every chunk resets the state and the properties, which costs a few hundred
+forgettable decisions per megabyte and makes each chunk independent; the
+dictionary is the only thing carried across. The first chunk must reset the
+dictionary too — a decoder has none to start from.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-properties_of"><span class="ktag ktag--fn">fn</span>properties_of</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> properties_of(<span class="tok-k">Int32</span>, <span class="tok-k">Int32</span>, <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Int32</span>
+</pre><p>The properties byte for a set of parameters.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Int32</code></p></div><div class="api-item"><h3 id="sym-unlzma"><span class="ktag ktag--fn">fn</span>unlzma</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unlzma(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read a <code>.lzma</code> "alone" container.</p>
+<p>A stream may leave its length unknown and end with a marker instead, which is
+what every encoder did before sizes could be trusted; both are read here.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-unlzma2"><span class="ktag ktag--fn">fn</span>unlzma2</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unlzma2(<span class="tok-t">BytesView</span>, <span class="tok-k">Int32</span>, <span class="tok-t">Decoder</span>) -&gt; (<span class="tok-k">Bytes</span>, <span class="tok-k">Int32</span>) <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decode the LZMA2 chunks starting at <code>at</code>, and say where they ended.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Decoder</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>(Bytes, Int32)</code> · raises <code>@moonzip.Refused</code></p></div></div></section>
+<section id="pkg-xz" class="pkg"><h2><span class="num">xz</span> <em class="spec">— xz file format</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Check"><span class="ktag ktag--enum">enum</span>Check</h3><p>The check an xz block carries: a checksum over the uncompressed data, after
+the block's padding.</p>
+<p>CRC-64 is xz's default; CRC-32 and none exist for streams that want them.
+SHA-256 is in the format and is read here without being verified, because
+verifying it would mean carrying a hash function this library does not have —
+the stream still decodes, and the gap is stated rather than hidden.</p><div class="code-head">variants</div><table class="fields"><tbody><tr><td class="mono">None</td><td class="mono"></td><td></td></tr><tr><td class="mono">Crc32</td><td class="mono"></td><td></td></tr><tr><td class="mono">Crc64</td><td class="mono"></td><td></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Check-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Check</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Check-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Check</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Check-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Check</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item"><h3 id="sym-unxz"><span class="ktag ktag--fn">fn</span>unxz</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unxz(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read an xz stream.</p>
+<p>The header, the block header, the index and the footer are each checked
+against their own CRC, and the block against the check the header named. A
+stream that disagrees with itself is refused rather than decoded into
+something plausible.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-xz"><span class="ktag ktag--fn">fn</span>xz</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> xz(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>, check? : <span class="tok-t">Check</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress into an xz stream.</p>
+<p>One block holds everything; a stream of several blocks is what a parallel
+compressor produces and a reader does not care either way. The block names
+LZMA2 with a stated dictionary, the index follows it, and the footer closes
+it — all three of which a reader checks before trusting a byte.</p>
+<p>The block's data is padded to a four-byte boundary *before* its check, not
+after: that is where the specification puts it, and a stream that pads
+afterwards reads its own check three bytes early and is rejected by every
+other implementation.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">check</td><td class="mono">Check</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div></section>
+<section id="pkg-bzip2" class="pkg"><h2><span class="num">bzip2</span> <em class="spec">— bzip2</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Reader"><span class="ktag ktag--type">type</span>Reader</h3><p>A reader that is fed a piece at a time.</p>
+<p>A bzip2 block cannot be decoded until all of it has arrived, so a push that
+does not complete a block produces nothing. What survives between pushes is
+the bit position of the block that is being waited for — a *bit* position, not
+a byte one, because the format does not pad between blocks: the next marker
+starts at the next bit, which is why this reader keeps an accumulator rather
+than an offset.</p><div class="code-head">methods</div><div class="method"><h4 id="sym-Reader-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="method"><h4 id="sym-Reader-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::new(checksum? : <span class="tok-k">Bool</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">checksum</td><td class="mono">Bool</td><td>labelled, optional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Reader-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Reader</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div></div><div class="api-item api-type"><h3 id="sym-Writer"><span class="ktag ktag--type">type</span>Writer</h3><p>A compressor that is fed a piece at a time.</p>
+<p>bzip2 cannot emit anything until a block is complete — the sort needs all of
+it — so what is held between calls is one block's worth of the run-length
+stage plus a block of output. That is the format's own memory bound, not an
+arbitrary one, and it is why the level is a memory setting.</p>
+<pre class="ex"> <span class="ex-lang">moonbit nocheck</span><code><span class="tok-k">let</span> w = @bzip2.<span class="tok-t">Writer</span>::new(level=9)
+<span class="tok-k">let</span> <span class="tok-k">mut</span> out = w.push(part_one[:])
+out = out + w.push(part_two[:])
+out = out + w.finish()</code></pre><div class="code-head">methods</div><div class="method"><h4 id="sym-Writer-finish">finish</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::finish(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p class="returns">returns <code>Bytes</code></p></div><div class="method"><h4 id="sym-Writer-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::new(level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Writer-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div><div class="api-item"><h3 id="sym-bunzip2"><span class="ktag ktag--fn">fn</span>bunzip2</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> bunzip2(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decompress a bzip2 stream.</p>
+<p><code>limit</code> is how much output the caller is prepared to hold; a compressed stream
+says nothing about how far it expands, so a reader of untrusted input should
+say. Past it, <code>TooBig</code> rather than an allocation.</p>
+<pre class="ex"> <span class="ex-lang">moonbit nocheck</span><code><span class="tok-k">let</span> plain = @bzip2.bunzip2(packed[:])</code></pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-bzip2"><span class="ktag ktag--fn">fn</span>bzip2</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> bzip2(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress into bzip2.</p>
+<p><code>level</code> is one to nine and means what it means everywhere else: how much memory
+the compressor may use on a block, and so how far back a match can reach. Nine
+is the default because the format's own default is nine, and a caller who cares
+has an opinion.</p>
+<pre class="ex"> <span class="ex-lang">moonbit nocheck</span><code><span class="tok-k">let</span> packed = @bzip2.bzip2(body[:], level=9)</code></pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div></section>
+<section id="pkg-sevenz" class="pkg"><h2><span class="num">sevenz</span> <em class="spec">— 7z format</em><div class="pkg-grid"><div class="api-item api-type"><h3 id="sym-Entry"><span class="ktag ktag--struct">struct</span>Entry</h3><p>One member of an archive.</p>
+<p><code>data</code> is empty for a directory and for a file that had no content, which are
+two different things: <code>kind</code> tells them apart, and <code>size</code> does not.</p><div class="code-head">fields</div><table class="fields"><tbody><tr><td class="mono">name</td><td class="mono">String</td><td></td></tr><tr><td class="mono">data</td><td class="mono">Bytes</td><td></td></tr><tr><td class="mono">kind</td><td class="mono">Kind</td><td></td></tr><tr><td class="mono">mtime</td><td class="mono">Int64</td><td><p>Last modification, in Unix seconds. 7-Zip stores a Windows FILETIME, which
+is a hundred-nanosecond count since 1601, so a value read back is exact and
+a value that was never recorded is zero.</p></td></tr><tr><td class="mono">attributes</td><td class="mono">UInt32</td><td><p>The Windows attribute word, kept because it is the only place 7-Zip records
+"hidden", "read-only" and "directory".</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Entry-directory">directory</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::directory(<span class="tok-k">String</span>, mtime? : <span class="tok-k">Int64</span>) -&gt; <span class="tok-k">Self</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">mtime</td><td class="mono">Int64</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Entry-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Entry-new">new</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::new(<span class="tok-k">String</span>, <span class="tok-k">Bytes</span>, mtime? : <span class="tok-k">Int64</span>, attributes? : <span class="tok-k">UInt32</span>) -&gt; <span class="tok-k">Self</span>
+</pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">String</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Bytes</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">mtime</td><td class="mono">Int64</td><td>labelled, optional</td></tr><tr><td class="mono">attributes</td><td class="mono">UInt32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Entry-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Entry-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Entry</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item api-type"><h3 id="sym-Kind"><span class="ktag ktag--enum">enum</span>Kind</h3><p>What an entry is. 7-Zip records it in the file attributes rather than in a
+type field, which is why this is derived rather than read.</p><div class="code-head">variants</div><table class="fields"><tbody><tr><td class="mono">File</td><td class="mono"></td><td></td></tr><tr><td class="mono">Directory</td><td class="mono"></td><td></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Kind-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Kind</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Kind-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Kind</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Kind-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Kind</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item api-type"><h3 id="sym-Method"><span class="ktag ktag--enum">enum</span>Method</h3><p>How the writer compresses. 7z is a container, so this is a choice rather than
+a property of the format: the same archive can hold a folder of LZMA and a
+folder of copies.</p><div class="code-head">variants</div><table class="fields"><tbody><tr><td class="mono">Copy</td><td class="mono"></td><td><p>Nothing at all. The folder exists so the file table has something to point
+at, which is what makes a <code>.7z</code> a <code>.7z</code> even uncompressed.</p></td></tr><tr><td class="mono">Lzma</td><td class="mono"></td><td><p>LZMA, which is what 7-Zip's own default is for text.</p></td></tr><tr><td class="mono">Lzma2</td><td class="mono"></td><td><p>LZMA2, the chunked form. Same codec, resettable state.</p></td></tr></tbody></table><div class="code-head">methods</div><div class="method"><h4 id="sym-Method-equal">equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Method</span>::equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Method-label">label</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Method</span>::label(<span class="tok-k">Self</span>) -&gt; <span class="tok-k">String</span>
+</pre><p>The name a log line wants.</p><p class="returns">returns <code>String</code></p></div><div class="method"><h4 id="sym-Method-not_equal">not_equal</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Method</span>::not_equal(<span class="tok-k">Self</span>, <span class="tok-k">Self</span>) -&gt; <span class="tok-k">Bool</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>Bool</code></p></div><div class="method"><h4 id="sym-Method-to_repr">to_repr</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Method</span>::to_repr(<span class="tok-k">Self</span>) -&gt; @debug.<span class="tok-t">Repr</span>
+</pre><p class="muted">Derived trait glue.</p><p class="returns">returns <code>@debug.Repr</code></p></div><p class="implements">implements Debug, Eq</p></div><div class="api-item"><h3 id="sym-names"><span class="ktag ktag--fn">fn</span>names</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> names(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-t">Array</span>[<span class="tok-k">String</span>] <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>The names in an archive, without decompressing anything.</p>
+<p>Reading a directory should not cost the directory's contents, which for a
+solid archive would be the whole thing.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Array[String]</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-sevenz"><span class="ktag ktag--fn">fn</span>sevenz</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> sevenz(<span class="tok-t">ArrayView</span>[<span class="tok-t">Entry</span>], level? : <span class="tok-k">Int32</span>, how? : <span class="tok-t">Method</span>, solid? : <span class="tok-k">Bool</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Build a 7z archive.</p>
+<pre class="ex"> <span class="ex-lang">moonbit nocheck</span><code><span class="tok-k">let</span> archive = @sevenz.sevenz(members[:], level=6)</code></pre>
+<p><code>solid</code> is 7-Zip's own default and the format's reason for existing: one
+folder holds every file, so the compressor sees them all at once and a
+repeated phrase across two files is paid for once. The cost is that reading
+the last file means decompressing the first ones, which is why it is an
+argument.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">ArrayView[Entry]</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">how</td><td class="mono">Method</td><td>labelled, optional</td></tr><tr><td class="mono">solid</td><td class="mono">Bool</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-un7z"><span class="ktag ktag--fn">fn</span>un7z</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> un7z(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-t">Array</span>[<span class="tok-t">Entry</span>] <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Read a 7z archive.</p>
+<pre class="ex"> <span class="ex-lang">moonbit nocheck</span><code><span class="tok-k">let</span> members = @sevenz.un7z(archive[:])</code></pre>
+<p><code>limit</code> is how much output the caller is prepared to hold. An archive declares
+its unpacked sizes, so this is checked before the allocation rather than after.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Array[Entry]</code> · raises <code>@moonzip.Refused</code></p></div></div></section>
+<section id="pkg-zstd" class="pkg"><h2><span class="num">zstd</span> <em class="spec">— RFC 8878</em><div class="pkg-grid"><div class="api-item"><h3 id="sym-unzstd"><span class="ktag ktag--fn">fn</span>unzstd</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unzstd(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Decompress a zstd frame.</p>
+<pre class="ex"> <span class="ex-lang">moonbit nocheck</span><code><span class="tok-k">let</span> plain = @zstd.unzstd(packed[:])</code></pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div><div class="api-item"><h3 id="sym-zstd"><span class="ktag ktag--fn">fn</span>zstd</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> zstd(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Compress into a zstd frame.</p>
+<pre class="ex"> <span class="ex-lang">moonbit nocheck</span><code><span class="tok-k">let</span> packed = @zstd.zstd(body[:])</code></pre>
+<p>The block is an LZ77 parse coded with the *predefined* FSE tables, and the
+literals are sent raw. That is a legal frame that any decoder reads, and it
+compresses: what it gives up against <code>zstd -19</code> is the per-block table
+selection and the Huffman coding of literals, which are the two parts of the
+reference encoder that are about ratio rather than about the format.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div></section>
+<section id="pkg-brotli" class="pkg"><h2><span class="num">brotli</span> <em class="spec">— RFC 7932</em><div class="pkg-grid"><div class="api-item"><h3 id="sym-brotli"><span class="ktag ktag--fn">fn</span>brotli</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> brotli(<span class="tok-t">BytesView</span>, window? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
+</pre><p>Brotli, RFC 7932.</p>
+<p>The writer is deliberately a plain one: greedy LZ77 over a single hash table,
+one meta-block per megabyte, one block type per stream, and Huffman codes
+computed from the exact symbol counts. What it does **not** do is the half of
+brotli that earns the format its ratio: literal context modelling, block
+splitting, the static dictionary, and the exhaustive parse at quality 11.</p>
+<p>That is a choice, not a gap. Those four are search problems over the same
+format the reader already implements, and a writer that used them would need
+the reference encoder's 30,000 lines to be worth the difference. This one is
+correct, readable by every brotli implementation, and roughly comparable to
+gzip on text.</p>
+<p><code>window</code> is the log of the window size, 10 to 24: how far back a copy may
+reach. Larger windows find more matches and cost nothing but memory while
+writing, since the reader keeps whatever it needs.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-unbrotli"><span class="ktag ktag--fn">fn</span>unbrotli</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unbrotli(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+</pre><p>Un-brotli a complete stream.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div></div></section><footer>
+<span><b>moonzip</b> — Apache-2.0</span>
+<span>Leo Cheng</span>
+<span><a href="https://github.com/moonbitstack/moonzip">github.com/moonbitstack/moonzip</a></span>
+<span style="margin-left:auto"><a href="index.html">home</a> · <a href="guide.html">guide</a> · generated by scripts/gen_api.py</span>
+</footer>
+</div>
+<script>
+(function () {
+  const html = document.documentElement;
+  const saved = localStorage.getItem("moonzip-theme");
+  if (saved) html.dataset.theme = saved;
+  document.getElementById("theme").addEventListener("click", () => {
+    const now = html.dataset.theme === "dark" ? "light"
+      : html.dataset.theme === "light" ? "dark"
+      : (matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark");
+    html.dataset.theme = now;
+    localStorage.setItem("moonzip-theme", now);
+  });
+})();
+</script>
+</body>
+</html>
