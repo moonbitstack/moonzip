@@ -621,6 +621,7 @@ body {
 ::-webkit-scrollbar-track { background: var(--paper-deep); }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 7px; border: 3px solid var(--paper-deep); }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+html, button, input, textarea, select { font-variant-ligatures: no-contextual; }
 
 /* the spine */
 .spine {
