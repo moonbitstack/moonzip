@@ -439,12 +439,12 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
         <tr>
           <td class="mono">brotli</td><td class="mono">RFC 7932</td>
           <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
-          <td>Block types, four context modes, and the 122 KB static dictionary with its 121 transforms — verified against libbrotli at qualities 0 to 11. The writer is a plain LZ77 encoder: no dictionary, no context modelling.</td>
+          <td>Block types, four context modes, and the 122 KB static dictionary with its 121 transforms — verified against an independent reference decoder at qualities 0 to 11. The writer is a plain LZ77 encoder: no dictionary, no context modelling.</td>
         </tr>
         <tr>
           <td class="mono">zstd</td><td class="mono">RFC 8878</td>
           <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
-          <td>The full reader — FSE, Huffman literals in one or four streams, every table mode, repeat offsets — verified against libzstd. The writer uses the predefined tables and raw literals.</td>
+          <td>The full reader — FSE, Huffman literals in one or four streams, every table mode, repeat offsets — verified against an independent reference decoder. The writer uses the predefined tables and raw literals.</td>
         </tr>
         <tr>
           <td class="mono">7z</td><td class="mono">7z format</td>
