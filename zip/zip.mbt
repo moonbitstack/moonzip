@@ -86,8 +86,7 @@ pub extend Entry with Debug::{to_repr}
 ///|
 /// The compression level entries are written at, when they are deflated.
 ///
-/// Six, which is `moonzip`'s default and zlib's, and therefore what `zip`,
-/// Python's `zipfile` and every other writer produces.
+/// Six, `moonzip`'s default and the level every other ZIP writer uses.
 pub let level : Int32 = 6
 
 ///|

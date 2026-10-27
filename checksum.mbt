@@ -8,8 +8,7 @@
 /// It lives at the root rather than beside one container because two of them
 /// specify it — `gzip` puts it in the trailer, `zip` in every entry's header and
 /// again in the central directory — and one of them should not have to import
-/// the other to reach it. When the checksum package in `mooncrypt` lands, this
-/// moves there and is re-exported from here.
+/// the other to reach it.
 pub fn crc32(data : BytesView) -> UInt32 {
   let sum = Crc::new()
   sum.push(data)

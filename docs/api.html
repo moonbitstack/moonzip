@@ -214,8 +214,7 @@ IEEE 802.3 polynomial, starting and ending complemented.</p>
 <p>It lives at the root rather than beside one container because two of them
 specify it — <code>gzip</code> puts it in the trailer, <code>zip</code> in every entry's header and
 again in the central directory — and one of them should not have to import
-the other to reach it. When the checksum package in <code>mooncrypt</code> lands, this
-moves there and is re-exported from here.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div><div class="api-item"><h3 id="sym-crc32c"><span class="ktag ktag--fn">fn</span>crc32c</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> crc32c(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">UInt32</span>
+the other to reach it.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>UInt32</code></p></div><div class="api-item"><h3 id="sym-crc32c"><span class="ktag ktag--fn">fn</span>crc32c</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> crc32c(<span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">UInt32</span>
 </pre><p>CRC-32C, the Castagnoli polynomial: the checksum that has hardware support on
 every x86 since Nehalem and every ARM since v8, which is why Snappy and iSCSI
 chose it over the older CRC-32 that gzip and ZIP use.</p>
@@ -274,10 +273,10 @@ pushed afterwards.</p><p class="returns">returns <code>Bytes</code></p></div><di
 </pre><p>Compress into a DEFLATE stream, one block over the whole input.</p>
 <p>LZ77 finds back-references with a hash chain over the window, capped so the
 search stays linear in the input. <code>blocks</code> decides how the result is coded.</p>
-<p><code>level</code> runs 0 to 9 and means what it means everywhere else: 0 stores the
-input without compressing it, 9 searches hardest, and 6 is the default zlib,
-Go, Python and Node all use. It sets how far back the match finder looks,
-with the same numbers zlib's own table uses.</p>
+<p><code>level</code> runs 0 to 9 and means what it means in the format's reference: 0 stores the
+input without compressing it, 9 searches hardest, and 6 is the default every
+mainstream encoder uses. It sets how far back the match finder looks, with the
+same numbers the reference tables give it.</p>
 <p><code>window</code> is how far a back-reference may reach — 32 KiB is the most DEFLATE
 allows and the only value a reader can be assumed to handle. <code>chain</code> sets
 the search depth directly for a caller who would rather not go through a
@@ -598,8 +597,8 @@ reach, and therefore how much a decoder must hold; 8 MiB at the top is what
 <p>The match finder is a hash chain over three bytes, walked greedily: the first
 match of three or more bytes wins, and the repeat distance is tried before the
 chain because it costs a handful of bits instead of a distance. That is a
-long way from an optimal parse, and it is the same order of effort zlib's own
-level six makes — the point here is a stream that real decoders read, not the
+long way from an optimal parse, and it is the same order of effort a mainstream
+level-six encoder makes — the point here is a stream that real decoders read, not the
 last three percent.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">Int32</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-lzma"><span class="ktag ktag--fn">fn</span>lzma</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> lzma(<span class="tok-t">BytesView</span>, level? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
 </pre><p>Compress into the <code>.lzma</code> "alone" container: thirteen bytes of header, then
 the range-coded stream.</p>

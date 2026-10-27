@@ -221,8 +221,8 @@ fn encode_literal(
 /// The match finder is a hash chain over three bytes, walked greedily: the first
 /// match of three or more bytes wins, and the repeat distance is tried before the
 /// chain because it costs a handful of bits instead of a distance. That is a
-/// long way from an optimal parse, and it is the same order of effort zlib's own
-/// level six makes — the point here is a stream that real decoders read, not the
+/// long way from an optimal parse, and it is the same order of effort a mainstream
+/// level-six encoder makes — the point here is a stream that real decoders read, not the
 /// last three percent.
 pub fn encode(
   data : BytesView,

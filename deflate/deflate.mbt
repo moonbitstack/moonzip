@@ -38,10 +38,10 @@ pub extend Blocks with Debug::{to_repr}
 /// LZ77 finds back-references with a hash chain over the window, capped so the
 /// search stays linear in the input. `blocks` decides how the result is coded.
 ///
-/// `level` runs 0 to 9 and means what it means everywhere else: 0 stores the
-/// input without compressing it, 9 searches hardest, and 6 is the default zlib,
-/// Go, Python and Node all use. It sets how far back the match finder looks,
-/// with the same numbers zlib's own table uses.
+/// `level` runs 0 to 9 and means what it means in the format's reference: 0 stores the
+/// input without compressing it, 9 searches hardest, and 6 is the default every
+/// mainstream encoder uses. It sets how far back the match finder looks, with the
+/// same numbers the reference tables give it.
 ///
 /// `window` is how far a back-reference may reach — 32 KiB is the most DEFLATE
 /// allows and the only value a reader can be assumed to handle. `chain` sets

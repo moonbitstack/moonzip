@@ -424,17 +424,17 @@ w.finish()     <span class="tok-c">// returns the directory at the end</span></p
         <tr>
           <td class="mono">lzma</td><td class="mono">LZMA SDK</td>
           <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
-          <td>The range coder and the probability model, and the <code>.lzma</code> container both ways — including the end-marker form Python writes and ours never does.</td>
+          <td>The range coder and the probability model, and the <code>.lzma</code> container both ways — including the end-marker form some writers emit and ours never does.</td>
         </tr>
         <tr>
           <td class="mono">xz</td><td class="mono">xz file format</td>
           <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
-          <td>LZMA2 chunks, CRC-32/CRC-64/none checks, the index and the footer. Verified both ways against Python's <code>lzma</code>.</td>
+          <td>LZMA2 chunks, CRC-32/CRC-64/none checks, the index and the footer. Verified both ways against an independent reference decoder.</td>
         </tr>
         <tr>
           <td class="mono">bzip2</td><td class="mono">bzip2</td>
           <td><span class="pill pill--yes">yes</span></td><td><span class="pill pill--yes">yes</span></td>
-          <td>Burrows-Wheeler, move-to-front and six Huffman tables, both directions — verified against libbz2, which is what Python's <code>bz2</code> calls.</td>
+          <td>Burrows-Wheeler, move-to-front and six Huffman tables, both directions — verified against the reference bzip2 implementation.</td>
         </tr>
         <tr>
           <td class="mono">brotli</td><td class="mono">RFC 7932</td>
