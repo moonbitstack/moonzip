@@ -1,7 +1,7 @@
 // Check moonzip's brotli streams against libbrotli, which is what Node's `zlib`
 // module is.
 //
-//     moon run examples/vectors | node scripts/brotli_check.js
+//     moon run src/examples/vectors | node scripts/brotli_check.js
 //
 // Python has no brotli in its standard library, so the half of the conformance
 // check that lives in `conformance.py` cannot cover this format. Node 22 bundles

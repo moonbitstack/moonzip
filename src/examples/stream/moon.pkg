@@ -1,5 +1,5 @@
 // A body compressed and decompressed a piece at a time:
-// `moon run examples/stream`.
+// `moon run src/examples/stream`.
 pkgtype(kind: "executable")
 
 import {

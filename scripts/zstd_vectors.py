@@ -84,7 +84,7 @@ def main():
         name = case["name"]
         lines.append("  assert_eq(@zstd.unzstd(frame_%s()[:]), body_%s())\n" % (name, name))
     lines.append("}\n")
-    path = ROOT / "zstd" / "interop_test.mbt"
+    path = ROOT / "src" / "zstd" / "interop_test.mbt"
     path.write_text("".join(lines), encoding="utf-8", newline="\n")
     total = sum(len(c["frame"]) // 2 for c in cases)
     print("wrote %s (%d frames, %d bytes)" % (path, len(cases), total))

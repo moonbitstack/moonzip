@@ -4,7 +4,7 @@
 ///|
 /// A body compressed three ways and read back each time.
 ///
-///     moon run examples/tour
+///     moon run src/examples/tour
 #coverage.skip
 fn main raise {
   let out : Array[Byte] = []

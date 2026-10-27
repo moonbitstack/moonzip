@@ -7,7 +7,7 @@
 /// repetitive English the README's speed table is measured on, so the numbers
 /// are comparable across formats.
 ///
-///     moon run examples/formats
+///     moon run src/examples/formats
 fn body() -> Bytes {
   let out : Array[Byte] = []
   for i in 0..<4000 {
@@ -19,6 +19,7 @@ fn body() -> Bytes {
   Bytes::from_array(out)
 }
 
+///|
 fn main raise {
   let b = body()
   let n = b.length()

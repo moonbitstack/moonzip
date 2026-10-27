@@ -3,7 +3,7 @@
 
     python3 scripts/interop.py
 
-Writes `zip/interop_test.mbt`. `scripts/conformance.py` covers the other
+Writes `src/zip/interop_test.mbt`. `scripts/conformance.py` covers the other
 direction -- our output handed to Python -- and this covers the shapes only a
 foreign writer produces: a data descriptor, a forced Zip64 header. A reader that
 only ever sees its own output can be wrong for years and never notice.
@@ -206,7 +206,7 @@ def write_tar():
         )
         for name, blob in shapes
     )
-    path = os.path.join(ROOT, "tar", "interop_test.mbt")
+    path = os.path.join(ROOT, "src", "tar", "interop_test.mbt")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(TAR_TEMPLATE.replace("__ARMS__", arms))
     print("wrote {} ({} bytes of vectors)".format(path, sum(len(b) for _, b in shapes)))
@@ -252,7 +252,7 @@ def write_lzma():
     blob = lzma_mod.compress(payload, format=lzma_mod.FORMAT_ALONE, preset=6)
     hexed = blob.hex()
     lines = '    "' + hexed + '",'
-    path = os.path.join(ROOT, "lzma", "interop_test.mbt")
+    path = os.path.join(ROOT, "src", "lzma", "interop_test.mbt")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(LZMA_TEMPLATE.replace("__HEX__", lines))
     print("wrote {} ({} bytes)".format(path, len(blob)))
@@ -296,7 +296,7 @@ test \"python's xz stream reads back\" {
 def write_xz():
     payload = b"the quick brown fox jumps over the lazy dog. " * 40
     blob = lzma_mod.compress(payload, format=lzma_mod.FORMAT_XZ)
-    path = os.path.join(ROOT, "xz", "interop_test.mbt")
+    path = os.path.join(ROOT, "src", "xz", "interop_test.mbt")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(XZ_TEMPLATE.replace("__HEX__", blob.hex()))
     print("wrote {} ({} bytes)".format(path, len(blob)))
@@ -346,7 +346,7 @@ def write_bzip2():
         "  assert_eq(@bzip2.bunzip2(packed[:]), python_body())",
         "}",
     ]
-    path = os.path.join(ROOT, "bzip2", "interop_test.mbt")
+    path = os.path.join(ROOT, "src", "bzip2", "interop_test.mbt")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(lines) + "\n")
     print("wrote {} ({} bytes)".format(path, len(blob)))
@@ -364,7 +364,7 @@ def main():
         )
         for name, blob in shapes
     )
-    path = os.path.join(ROOT, "zip", "interop_test.mbt")
+    path = os.path.join(ROOT, "src", "zip", "interop_test.mbt")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(TEMPLATE.replace("__ARMS__", arms))
     print("wrote {} ({} bytes of vectors)".format(path, sum(len(b) for _, b in shapes)))

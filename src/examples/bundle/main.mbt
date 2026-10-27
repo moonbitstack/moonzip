@@ -8,7 +8,7 @@
 /// "complete system" in miniature: the streaming writer, the containers, and the
 /// read-back that proves the bytes survived.
 ///
-///     moon run examples/bundle
+///     moon run src/examples/bundle
 fn big() -> Bytes {
   let out : Array[Byte] = []
   for i in 0..<4000 {
@@ -20,6 +20,7 @@ fn big() -> Bytes {
   Bytes::from_array(out)
 }
 
+///|
 fn main raise {
   // The files: a small note and a large body.
   let readme = b"moonzip release\n"
@@ -49,28 +50,33 @@ fn main raise {
   println("compressed big.bin -> \{bigbin.length()} bytes")
 
   // tar holds the files and a directory entry; the directory also exists in 7z.
-  let tarball = @tar.tar([
-    @tar.Entry::new("readme.txt", readme),
-    @tar.Entry::new("big.bin", bigbin),
-    @tar.Entry::directory("docs"),
-  ][:])
-  let gzipped = @tar.targz([
-    @tar.Entry::new("readme.txt", readme),
-    @tar.Entry::new("big.bin", bigbin),
-  ][:])
+  let tarball = @tar.tar(
+    [
+      @tar.Entry::new("readme.txt", readme),
+      @tar.Entry::new("big.bin", bigbin),
+      @tar.Entry::directory("docs"),
+    ][:],
+  )
+  let gzipped = @tar.targz(
+    [@tar.Entry::new("readme.txt", readme), @tar.Entry::new("big.bin", bigbin)][:],
+  )
 
   // zip carries the same files under a password; it has no directory entry.
-  let zipped = @zip.zip([
-    @zip.Entry::new("readme.txt", readme),
-    @zip.Entry::new("big.bin", bigbin),
-  ][:], password="release-key")
+  let zipped = @zip.zip(
+    [@zip.Entry::new("readme.txt", readme), @zip.Entry::new("big.bin", bigbin)][:],
+    password="release-key",
+  )
 
   // 7z, solid, with the LZMA2 method the format is built on.
-  let seven = @sevenz.sevenz([
-    @sevenz.Entry::new("readme.txt", readme),
-    @sevenz.Entry::new("big.bin", bigbin),
-    @sevenz.Entry::directory("docs"),
-  ][:], how=@sevenz.Method::Lzma2, solid=true)
+  let seven = @sevenz.sevenz(
+    [
+      @sevenz.Entry::new("readme.txt", readme),
+      @sevenz.Entry::new("big.bin", bigbin),
+      @sevenz.Entry::directory("docs"),
+    ][:],
+    how=@sevenz.Method::Lzma2,
+    solid=true,
+  )
 
   // Open everything again.
   let t_members = @tar.untar(tarball[:])
@@ -78,18 +84,10 @@ fn main raise {
   let z_members = @zip.unzip(zipped[:], password="release-key")
   let s_members = @sevenz.un7z(seven[:])
 
-  println(
-    "tar    -> \{tarball.length()} bytes, \{t_members.length()} members",
-  )
-  println(
-    "tar.gz -> \{gzipped.length()} bytes, \{tg_members.length()} members",
-  )
-  println(
-    "zip    -> \{zipped.length()} bytes, \{z_members.length()} members",
-  )
-  println(
-    "7z     -> \{seven.length()} bytes, \{s_members.length()} members",
-  )
+  println("tar    -> \{tarball.length()} bytes, \{t_members.length()} members")
+  println("tar.gz -> \{gzipped.length()} bytes, \{tg_members.length()} members")
+  println("zip    -> \{zipped.length()} bytes, \{z_members.length()} members")
+  println("7z     -> \{seven.length()} bytes, \{s_members.length()} members")
 
   // The big member came back intact in every container.
   let back_tar = t_members[1].data

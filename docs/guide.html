@@ -37,7 +37,6 @@ body {
 @supports not selector(::-webkit-scrollbar) {
   * { scrollbar-color: var(--ink-faint) var(--paper-deep); scrollbar-width: thin; }
 }
-* { scrollbar-width: thin; }
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-track { background: var(--paper-deep); }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 7px; border: 3px solid var(--paper-deep); }
@@ -100,8 +99,8 @@ h2 .num { display: block; font: 400 11px/1 ui-monospace, monospace; letter-spaci
 .sub { margin: 0 0 34px; max-width: 64ch; color: var(--ink-soft); }
 
 /* the two-column rhythm: a narrow label, then the content */
-.pair { display: grid; grid-template-columns: 172px 1fr; gap: 34px; align-items: start; }
-@media (max-width: 880px) { .pair { grid-template-columns: 1fr; gap: 16px; } }
+.pair { display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: 34px; align-items: start; }
+@media (width <= 880px) { .pair { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
 .pair__label { font: 500 11px/1.7 ui-monospace, monospace; letter-spacing: .16em;
   text-transform: uppercase; color: var(--ink-faint); padding-top: 6px; }
 .pair + .pair { margin-top: 40px; padding-top: 40px; border-top: 1px dashed var(--line); }
@@ -388,7 +387,7 @@ gunzip    -> 184000 bytes, matches: true</pre>
     <h2><span class="num">04 — Choosing a format</span>No format wins.</h2>
     <p class="sub">
       The numbers are one 184,000-byte body of English text with a periodic tail,
-      printed by <code>examples/stream</code> and <code>examples/formats</code>.
+      printed by <code>src/examples/stream</code> and <code>src/examples/formats</code>.
       They are the same body the home page's
       strata show — here as a table, with what each format is for.
     </p>

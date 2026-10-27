@@ -159,7 +159,7 @@ def main():
             frame["name"], frame["quality"], frame["window"], frame["tag"]))
         lines.append("  assert_eq(@brotli.unbrotli(frame_%s()[:]), body_%s())\n" % (name, frame["name"]))
         lines.append("}\n")
-    path = ROOT / "brotli" / "interop_test.mbt"
+    path = ROOT / "src" / "brotli" / "interop_test.mbt"
     path.write_text("".join(lines), encoding="utf-8", newline="\n")
     total = sum(len(f["frame"]) // 2 for f in frames)
     print("wrote %s (%d streams, %d bytes)" % (path, len(frames), total))

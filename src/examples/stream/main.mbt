@@ -4,7 +4,7 @@
 ///|
 /// Compress and decompress a body a piece at a time.
 ///
-///     moon run examples/stream
+///     moon run src/examples/stream
 ///
 /// The point of the streaming interface is that neither the body nor its
 /// compressed form is ever held whole: what is held is the 32 KiB window the

@@ -5,7 +5,7 @@
 /// The smallest program that uses the library: one format, a call each way, and
 /// a check that the bytes came back.
 ///
-///     moon run examples/minimal
+///     moon run src/examples/minimal
 fn main raise {
   let body = b"the smallest program that uses this library"
   let packed = @gzip.gzip(body[:])

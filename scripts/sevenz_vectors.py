@@ -91,7 +91,7 @@ def main():
             out.append("    assert_true(members.length() > 0)\n")
         out.append("  }\n")
     out.append("}\n")
-    path = ROOT / "sevenz" / "interop_test.mbt"
+    path = ROOT / "src" / "sevenz" / "interop_test.mbt"
     path.write_text("".join(out), encoding="utf-8", newline="\n")
     total = sum((SOURCE / n).stat().st_size for n, _ in CASES)
     print("wrote %s (%d archives, %d bytes)" % (path, len(CASES), total))

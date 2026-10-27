@@ -191,7 +191,7 @@ fn join(parts : FixedArray[Bytes]) -> Bytes {
         emit_ints("context_lut", context_lut, "Literal context lookup, four quadrants of 512 entries.", width=16),
     ]
 
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brotli", "data.mbt")
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "brotli", "data.mbt")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(header + "\n".join(body))

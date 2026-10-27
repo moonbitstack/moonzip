@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Check moonzip's zstd frames against libzstd, which is what Node's `zlib` is.
 //
-//     moon run examples/vectors --target native | node scripts/zstd_check.js
+//     moon run src/examples/vectors --target native | node scripts/zstd_check.js
 //
 // Python has no zstd, so the half of the conformance check that lives in
 // `conformance.py` cannot cover this format. Node 22 ships the reference

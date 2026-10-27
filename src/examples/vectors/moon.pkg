@@ -1,5 +1,5 @@
 // The streams this library writes, as hex, for an external checker:
-// `moon run examples/vectors`.
+// `moon run src/examples/vectors`.
 pkgtype(kind: "executable")
 
 import {

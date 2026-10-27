@@ -1,4 +1,4 @@
-// Compressing and reading back, in all three shapes: `moon run examples/tour`.
+// Compressing and reading back, in all three shapes: `moon run src/examples/tour`.
 pkgtype(kind: "executable")
 
 import {

@@ -1,15 +1,12 @@
-name: Pages
+name: Docs
 
-# The site is one file in `docs/` and nothing is built for it: no generator, no
-# theme, no node_modules. That is the whole deployment story, which is why it
-# fits in twenty lines.
 on:
   push:
     branches:
       - master
     paths:
       - "docs/**"
-      - ".github/workflows/pages.yml"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -36,7 +33,7 @@ jobs:
         uses: actions/configure-pages@v6
 
       - name: upload
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 

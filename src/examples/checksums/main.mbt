@@ -7,7 +7,7 @@
 /// reaches the same value as the one-shot because that is what "streaming" means
 /// for a checksum: the same folding, just not all at once.
 ///
-///     moon run examples/checksums
+///     moon run src/examples/checksums
 fn body() -> Bytes {
   let out : Array[Byte] = []
   for i in 0..<4000 {
@@ -19,6 +19,7 @@ fn body() -> Bytes {
   Bytes::from_array(out)
 }
 
+///|
 fn main {
   let b = body()
   let crc = @moonzip.crc32(b[:])

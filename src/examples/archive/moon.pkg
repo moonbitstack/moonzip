@@ -1,4 +1,4 @@
-// Archives a member at a time: `moon run examples/archive`.
+// Archives a member at a time: `moon run src/examples/archive`.
 pkgtype(kind: "executable")
 
 import {

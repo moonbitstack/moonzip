@@ -4,7 +4,7 @@
 ///|
 /// Build archives and read them back.
 ///
-///     moon run examples/archive
+///     moon run src/examples/archive
 ///
 /// Both containers are directories that are files, and both are written here the
 /// same way: hand the writer members, take the bytes it produces, hand them back

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check moonzip's streams against Python's zlib, which is zlib itself.
 
-    moon run examples/vectors | python3 scripts/conformance.py
+    moon run src/examples/vectors | python3 scripts/conformance.py
 
 Every line the example prints carries a stream we wrote. This hands each one to
 Python and asks for the input back, so "others can read what we write" stays
@@ -20,7 +20,7 @@ import zlib
 
 
 def sample(kind):
-    """The same seven inputs examples/vectors builds, byte for byte."""
+    """The same seven inputs src/examples/vectors builds, byte for byte."""
     if kind == 0:
         return b""
     if kind == 1:

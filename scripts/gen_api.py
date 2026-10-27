@@ -617,7 +617,6 @@ body {
 @supports not selector(::-webkit-scrollbar) {
   * { scrollbar-color: var(--ink-faint) var(--paper-deep); scrollbar-width: thin; }
 }
-* { scrollbar-width: thin; }
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-track { background: var(--paper-deep); }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 7px; border: 3px solid var(--paper-deep); }
@@ -808,15 +807,14 @@ def build_html(packages):
 
 def main():
     root = repo_root()
-    # Discover packages: every directory with a pkg.generated.mbti, except
-    # examples and the dependency cache (.mooncakes, target, hidden dirs).
+    src = os.path.join(root, "src")
     pkgs = []
-    for base, dirs, files in os.walk(root):
-        parts = base.split(os.sep)
-        if any(p.startswith(".") for p in parts) or "examples" in parts:
+    for base, dirs, files in os.walk(src):
+        rel = os.path.relpath(base, src)
+        parts = [] if rel == "." else rel.split(os.sep)
+        if any(p.startswith((".", "_")) for p in parts) or "examples" in parts:
             continue
         if "pkg.generated.mbti" in files and "moon.pkg" in files:
-            rel = os.path.relpath(base, root)
             short = "moonzip" if rel == "." else os.path.basename(base)
             pkgs.append((short, base))
 

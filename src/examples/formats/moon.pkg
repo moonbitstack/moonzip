@@ -1,4 +1,4 @@
-// Every codec in one place: `moon run examples/formats`.
+// Every codec in one place: `moon run src/examples/formats`.
 pkgtype(kind: "executable")
 
 import {

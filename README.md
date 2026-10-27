@@ -28,7 +28,7 @@ let members = @zip.unzip(archive[:])
 | `zstd` | Frames, blocks, FSE and Huffman | RFC 8878 |
 | `brotli` | Meta-blocks, contexts, block types and the 122 KB dictionary | RFC 7932 |
 
-Run any of them with `moon run examples/<name>`:
+Run any of them with `moon run src/examples/<name>`:
 
 - `minimal` — the smallest program: compress and read back one buffer.
 - `tour` — the surface in one go: deflate, gzip, zlib and brotli, the two checksums, and a tampered stream refused.
@@ -358,7 +358,7 @@ Four things about this format cost real time:
 
 `lz4` and `snappy` trade ratio for decode speed, and the numbers below are what
 the trade costs on the same body — 184,000 bytes of English text with a periodic
-tail, printed by `examples/stream`.
+tail, printed by `src/examples/stream`.
 
 | Format | Bytes | Of the original |
 |:--|--:|--:|

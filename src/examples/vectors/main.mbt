@@ -4,7 +4,7 @@
 ///|
 /// Print the streams this library writes, as hex, for an external checker.
 ///
-///     moon run examples/vectors
+///     moon run src/examples/vectors
 ///
 /// The lines are `deflate <kind> <level> <blocks> <hex>`, `gzip <kind> <hex>`,
 /// `zlib <kind> <hex>`, and `stream <form> <kind> <step> <hex>` for the writers

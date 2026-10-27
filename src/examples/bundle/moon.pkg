@@ -1,4 +1,4 @@
-// A small release packer: `moon run examples/bundle`.
+// A small release packer: `moon run src/examples/bundle`.
 pkgtype(kind: "executable")
 
 import {

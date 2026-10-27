@@ -69,6 +69,14 @@ body {
 .serif { font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
 .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
 
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-color: var(--ink-faint) var(--paper-deep); scrollbar-width: thin; }
+}
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--paper-deep); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 7px; border: 3px solid var(--paper-deep); }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
 /* ------------------------------------------------------------------- the spine */
 .spine {
   position: fixed; inset: 0 auto 0 0; width: 76px;
@@ -162,8 +170,8 @@ h2 .num {
 .sub { margin: 0 0 40px; max-width: 62ch; color: var(--ink-soft); }
 
 /* The two-column rhythm: a narrow label column, then the content. */
-.pair { display: grid; grid-template-columns: 172px 1fr; gap: 34px; align-items: start; }
-@media (max-width: 880px) { .pair { grid-template-columns: 1fr; gap: 16px; } }
+.pair { display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: 34px; align-items: start; }
+@media (width <= 880px) { .pair { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
 .pair__label {
   font: 500 11px/1.7 ui-monospace, monospace; letter-spacing: .16em;
   text-transform: uppercase; color: var(--ink-faint); padding-top: 6px;
@@ -172,6 +180,7 @@ h2 .num {
 
 /* --------------------------------------------------------------------- tables */
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
+@media (width <= 760px) { table { display: block; overflow-x: auto; } }
 th, td { text-align: left; padding: 12px 14px 12px 0; vertical-align: top; }
 thead th {
   font: 500 10px/1 ui-monospace, monospace; letter-spacing: .18em;
@@ -217,8 +226,8 @@ p code, li code, td code {
 .xref:hover { border-color: var(--moss); }
 
 /* ------------------------------------------------------------------ playground */
-.play { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
-@media (max-width: 780px) { .play { grid-template-columns: 1fr; } }
+.play { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+@media (width <= 780px) { .play { grid-template-columns: minmax(0, 1fr); } }
 .play__cell { background: var(--paper); padding: 18px; display: flex; flex-direction: column; gap: 10px; }
 .play__label {
   font: 500 10px/1 ui-monospace, monospace; letter-spacing: .2em;
@@ -314,8 +323,8 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
     </div>
     <p class="tnote">
       One body — 184,000 bytes of English text with a periodic tail — compressed by
-      each format, printed by <code>examples/stream</code> and
-      <code>examples/formats</code>. The bars are on a
+      each format, printed by <code>src/examples/stream</code> and
+      <code>src/examples/formats</code>. The bars are on a
       square-root scale, or everything below gzip would be invisible. Eight
       compressing formats over one body, and a spread of four hundred to one: the
       three at the bottom see repetition that a 32 KiB window cannot, and bzip2
@@ -610,7 +619,7 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
       <div class="pair__label">others read what we write</div>
       <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
         <code>scripts/conformance.py</code> takes every stream
-        <code>examples/vectors</code> prints and hands it to an independent
+        <code>src/examples/vectors</code> prints and hands it to an independent
         reference decoder. Every combination of level, block type, chunk size,
         Zip64, descriptor and password has to come back as the body it started
         from.
@@ -644,10 +653,10 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
   <div class="wrap">
     <h2><span class="num">07 — Examples</span>Eight programs that use the library.</h2>
     <p class="sub">
-      Every one is a runnable executable under <code>examples/</code>, each
+      Every one is a runnable executable under <code>src/examples/</code>, each
       showing a different slice of the surface — from the smallest program that
       works to a release packer that streams, wraps and reads back. Run any of them
-      with <code>moon run examples/&lt;name&gt;</code>.
+      with <code>moon run src/examples/&lt;name&gt;</code>.
     </p>
 
     <table>
@@ -655,14 +664,14 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
         <tr><th>Example</th><th>What it shows</th><th>Run</th></tr>
       </thead>
       <tbody>
-        <tr><td class="mono">minimal</td><td>The smallest program: compress one buffer with gzip and read it back.</td><td class="mono">moon run examples/minimal</td></tr>
-        <tr><td class="mono">tour</td><td>deflate, gzip, zlib and brotli round-tripped, the two checksums, and a tampered stream refused.</td><td class="mono">moon run examples/tour</td></tr>
-        <tr><td class="mono">formats</td><td>Every codec, one-shot, with the size it reached and a round-trip check.</td><td class="mono">moon run examples/formats</td></tr>
-        <tr><td class="mono">stream</td><td>The streaming pair, both ways, on a body taken a piece at a time.</td><td class="mono">moon run examples/stream</td></tr>
-        <tr><td class="mono">checksums</td><td>CRC-32, Adler-32 and CRC-32C, one-shot and streamed a piece at a time.</td><td class="mono">moon run examples/checksums</td></tr>
-        <tr><td class="mono">archive</td><td>zip (Zip64, descriptors, a password) and tar, tar.gz and 7z.</td><td class="mono">moon run examples/archive</td></tr>
-        <tr><td class="mono">bundle</td><td>A small release packer: stream-compress, wrap in four containers, read back.</td><td class="mono">moon run examples/bundle</td></tr>
-        <tr><td class="mono">vectors</td><td>The byte streams handed to an independent reference decoder for conformance.</td><td class="mono">moon run examples/vectors</td></tr>
+        <tr><td class="mono">minimal</td><td>The smallest program: compress one buffer with gzip and read it back.</td><td class="mono">moon run src/examples/minimal</td></tr>
+        <tr><td class="mono">tour</td><td>deflate, gzip, zlib and brotli round-tripped, the two checksums, and a tampered stream refused.</td><td class="mono">moon run src/examples/tour</td></tr>
+        <tr><td class="mono">formats</td><td>Every codec, one-shot, with the size it reached and a round-trip check.</td><td class="mono">moon run src/examples/formats</td></tr>
+        <tr><td class="mono">stream</td><td>The streaming pair, both ways, on a body taken a piece at a time.</td><td class="mono">moon run src/examples/stream</td></tr>
+        <tr><td class="mono">checksums</td><td>CRC-32, Adler-32 and CRC-32C, one-shot and streamed a piece at a time.</td><td class="mono">moon run src/examples/checksums</td></tr>
+        <tr><td class="mono">archive</td><td>zip (Zip64, descriptors, a password) and tar, tar.gz and 7z.</td><td class="mono">moon run src/examples/archive</td></tr>
+        <tr><td class="mono">bundle</td><td>A small release packer: stream-compress, wrap in four containers, read back.</td><td class="mono">moon run src/examples/bundle</td></tr>
+        <tr><td class="mono">vectors</td><td>The byte streams handed to an independent reference decoder for conformance.</td><td class="mono">moon run src/examples/vectors</td></tr>
       </tbody>
     </table>
   </div>

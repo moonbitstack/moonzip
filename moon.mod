@@ -15,3 +15,5 @@ description = "Compression and archives for MoonBit."
 import {
   "moonbitstack/moonbase@0.4.0",
 }
+
+source = "src"
