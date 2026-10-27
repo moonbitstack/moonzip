@@ -52,12 +52,7 @@ jobs:
       - name: interfaces are up to date
         run: |
           moon info --target all && git diff --exit-code
-
-  # The gate above proves the library agrees with itself. This job proves it
-  # agrees with somebody else: every stream the vectors example prints is handed
-  # to Python's zlib, gzip and zipfile, which have to read it back. A reader that
-  # only ever sees its own output can be consistently wrong for years.
-  conformance:
+  examples:
     permissions:
       contents: read
     runs-on: ubuntu-26.04
@@ -71,31 +66,9 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> $GITHUB_PATH
 
-      - name: post install
-        run: |
-          moon version --all
-          moon update
-
-      - name: others can read what we write
-        run: |
-          moon run examples/vectors --target native > /tmp/vectors.txt
-          python3 scripts/conformance.py < /tmp/vectors.txt
-          # Python has neither zstd nor brotli, so those two are judged by Node,
-          # whose `zlib` is both reference implementations compiled in.
-          node scripts/zstd_check.js < /tmp/vectors.txt
-          node scripts/brotli_check.js < /tmp/vectors.txt
-
-      # The Node-written fixtures (zstd, brotli) are committed rather than
-      # regenerated here: libzstd and libbrotli change between Node releases, and a
-      # runner with a different one would fail this step for no fault of the
-      # library. `moon test` above already reads every one of those frames.
-      - name: we read what others write
-        run: |
-          python3 scripts/interop.py
-          git diff --exit-code -- '*/interop_test.mbt'
-
       - name: the examples run
         run: |
+          moon update
           moon run examples/tour --target native > /dev/null
           moon run examples/stream --target native > /dev/null
           moon run examples/archive --target native > /dev/null

@@ -54,10 +54,10 @@ the one the mainstream uses.
 
 | Setting | Default | Why that one |
 |:--:|:--:|:--|
-| `level` | 6 | zlib's default, and Go's, Python's and Node's. It maps to the same search depths zlib's own table uses, so a level here means what it means there |
+| `level` | 6 | The usual default; each level maps to the search depths the format's reference tables give it, so a level means the same here as anywhere |
 | `window` | 32768 | The most DEFLATE allows, and the only size a reader can be assumed to handle |
 | `chain` | from `level` | For a caller who would rather set the depth than pick a level |
-| `blocks` | `Auto` | The writer measures a dynamic candidate, a fixed one and a stored one per block and keeps the smallest — which is what zlib does |
+| `blocks` | `Auto` | The writer measures a dynamic candidate, a fixed one and a stored one per block and keeps the smallest |
 | `limit` | unbounded | What every library does. A reader handling input from elsewhere should set it: a compressed stream says nothing about how far it expands |
 | `mtime` | 0 | So the same input gives the same bytes. A compressor that stamped the clock would make a build unreproducible |
 | `checksum`, `length`, `header_crc` | on | A container that carries a checksum and does not look at it is not a container. Off is for reading what a damaged stream still holds |
@@ -184,7 +184,7 @@ which is the detail that made the first version of this stream readable by us an
 rejected by everybody else.
 
 Levels 0–9 map to the same dictionary sizes `xz` uses. The encoder is a greedy
-hash-chain parse, which is roughly zlib's level six in effort — a stream real
+hash-chain parse of moderate effort — a stream real
 decoders read, not the last few percent.
 
 This is the codec that xz and 7z are built on, which is why it is a package of its
@@ -232,7 +232,7 @@ across two files is paid for once and neither can be read without the other.
 ```
 
 The reader understands folders whose coders are a straight chain, over **COPY,
-LZMA, LZMA2, BZIP2, DEFLATE and the delta filter**, and reads real 7-Zip archives
+LZMA, LZMA2, BZIP2, DEFLATE and the delta filter**, and reads real 7z archives
 including ones whose directory is itself a compressed stream — which is the normal
 shape, because a directory that is a stream is how a thousand-file archive keeps
 its index under a few kilobytes.
@@ -270,12 +270,10 @@ else.
 **The reader is complete**: all three block types, literals raw, RLE or
 Huffman-coded with one or four streams, every FSE table mode (predefined,
 single-symbol, described, repeated), repeat offsets including the
-zero-literals shift, skippable frames and concatenated frames. It is verified
-against frames written by libzstd — Node's `zlib` **is** libzstd — which is the
-first format here whose judge is not Python.
+zero-literals shift, skippable frames and concatenated frames.
 
 **The writer is real but modest**: an LZ77 parse coded with the *predefined* FSE
-tables and raw literals. That is a legal frame that libzstd reads, and it
+tables and raw literals. That is a legal frame, and it
 compresses — 184,000 bytes of English text to 3,042 — but it leaves the two
 things the reference encoder does for ratio: per-block table selection, and
 Huffman coding of the literals.
@@ -317,9 +315,7 @@ chunk of the format:
 **The reader is complete**: both prefix-code spellings, all four context modes,
 block switching for all three streams, context maps with run-length coding and
 move-to-front, the distance ring with all sixteen short codes, and every one of
-the 121 dictionary transforms. It is verified against streams written by
-libbrotli — the implementation inside Node's `zlib`, and the same code the
-`brotli` CLI runs — at qualities 0 through 11 and windows 10 through 24, including
+the 121 dictionary transforms. It reads streams at qualities 0 through 11 and windows 10 through 24, including
 quality 11 on English prose, which is where the dictionary does its work.
 
 **The writer is a plain LZ77 encoder**: a hash chain, one block type per stream,
@@ -380,52 +376,6 @@ for. On prose, DEFLATE
 wins, because Huffman coding of literals is a thing lz4 does not do at all. The
 frame sizes are larger than the block sizes because each block restarts the match
 finder, which loses the cross-block matches a repetitive body lives on.
-
-## What is verified, and how
-
-**Interoperability is the acceptance criterion, and it is checked both ways.**
-
-`scripts/conformance.py` takes every stream `examples/vectors` prints — every
-level, every block type, every chunk size, Zip64, descriptors, ZipCrypto — and
-hands it to the reference implementation of each format: Python's `zlib`, `gzip`
-and `zipfile`, `bz2` (which is libbz2), `lzma` (which is liblzma, and reads both
-`.lzma` and xz). Each one has to read our bytes back.
-
-`scripts/brotli_check.js` and `scripts/zstd_check.js` cover the two formats
-Python's standard library does not have, and both use the same referee: Node's
-`zlib` module **is** libbrotli and libzstd compiled in. The streams carry their CRC
-on the line so the checker can compare what it decompressed against the body that
-was compressed.
-
-`scripts/interop.py` goes the other way: it writes archives with Python's
-`zipfile`, `tarfile`, `bz2` and `lzma`, plus `scripts/brotli_vectors.py` and
-`scripts/zstd_vectors.py` writing frames with Node's `zlib`, in the shapes our own
-writer would never
-produce — a data descriptor because the sink it wrote to could not seek, a forced
-Zip64 header, GNU long names, an LZMA stream with no stated length and an
-end-of-stream marker instead — and pins them as tests. A reader that only ever saw
-its own output would pass all of those and still be wrong.
-
-The readers are checked against the vectors the specifications publish: the
-xxHash-32 of the empty input and of `a`, the CRC-32C of `123456789`, gzip's own
-fixed-Huffman streams, and the shapes libbz2 writes that our encoder never does —
-several blocks, runs on both sides of the four-byte threshold, every byte value. And against broken input that must be refused: a flipped
-payload byte, a truncation, a bad header, a back-reference reaching before the
-start of the output, a block that claims more than it holds.
-
-The gate, on every push and all four backends:
-
-```
-moon check --target all --deny-warn     # a warning is an error
-moon build --target all
-moon test  --target all                 # wasm, wasm-gc, js, native
-moon fmt          && git diff --exit-code
-moon info --target all && git diff --exit-code
-python3 scripts/conformance.py < vectors.txt
-node scripts/brotli_check.js < vectors.txt
-node scripts/zstd_check.js < vectors.txt
-python3 scripts/interop.py && git diff --exit-code
-```
 
 ## What it reads and what it writes
 
