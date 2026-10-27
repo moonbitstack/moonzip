@@ -69,9 +69,13 @@ jobs:
       - name: the examples run
         run: |
           moon update
+          moon run examples/minimal --target native > /dev/null
           moon run examples/tour --target native > /dev/null
+          moon run examples/formats --target native > /dev/null
           moon run examples/stream --target native > /dev/null
+          moon run examples/checksums --target native > /dev/null
           moon run examples/archive --target native > /dev/null
+          moon run examples/bundle --target native > /dev/null
 
       - name: docs/api.html is generated and up to date
         run: |

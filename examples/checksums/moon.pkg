@@ -1,0 +1,6 @@
+// The checksums the formats specify: `moon run examples/checksums`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip",
+}

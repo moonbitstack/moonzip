@@ -314,7 +314,8 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
     </div>
     <p class="tnote">
       One body — 184,000 bytes of English text with a periodic tail — compressed by
-      each format, printed by <code>examples/stream</code>. The bars are on a
+      each format, printed by <code>examples/stream</code> and
+      <code>examples/formats</code>. The bars are on a
       square-root scale, or everything below gzip would be invisible. Eight
       compressing formats over one body, and a spread of four hundred to one: the
       three at the bottom see repetition that a 32 KiB window cannot, and bzip2
@@ -609,21 +610,21 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
       <div class="pair__label">others read what we write</div>
       <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
         <code>scripts/conformance.py</code> takes every stream
-        <code>examples/vectors</code> prints and hands it to Python's
-        <code>zlib</code>, <code>gzip</code> and <code>zipfile</code>. Every
-        combination of level, block type, chunk size, Zip64, descriptor and
-        password has to come back as the body it started from.
+        <code>examples/vectors</code> prints and hands it to an independent
+        reference decoder. Every combination of level, block type, chunk size,
+        Zip64, descriptor and password has to come back as the body it started
+        from.
       </p>
     </div>
 
     <div class="pair">
       <div class="pair__label">we read what others write</div>
       <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
-        <code>scripts/interop.py</code> writes archives with Python's
-        <code>zipfile</code> and <code>tarfile</code> — the plain form, one with
-        data descriptors because the sink it wrote to could not seek, a forced
-        Zip64 header, and tar in ustar, pax and GNU — and pins them as tests. They
-        are the shapes our own writer would never produce.
+        <code>scripts/interop.py</code> writes archives with the platform's
+        standard archive writers — the plain form, one with data descriptors
+        because the sink it wrote to could not seek, a forced Zip64 header, and
+        tar in ustar, pax and GNU — and pins them as tests. They are the shapes
+        our own writer would never produce.
       </p>
     </div>
 
@@ -636,6 +637,34 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
         <li><b>moon info</b>, then <code>git diff --exit-code</code> — the interface is checked in, so a change to it shows up in the diff.</li>
       </ul>
     </div>
+  </div>
+</section>
+
+<section id="examples">
+  <div class="wrap">
+    <h2><span class="num">07 — Examples</span>Eight programs that use the library.</h2>
+    <p class="sub">
+      Every one is a runnable executable under <code>examples/</code>, each
+      showing a different slice of the surface — from the smallest program that
+      works to a release packer that streams, wraps and reads back. Run any of them
+      with <code>moon run examples/&lt;name&gt;</code>.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Example</th><th>What it shows</th><th>Run</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">minimal</td><td>The smallest program: compress one buffer with gzip and read it back.</td><td class="mono">moon run examples/minimal</td></tr>
+        <tr><td class="mono">tour</td><td>deflate, gzip, zlib and brotli round-tripped, the two checksums, and a tampered stream refused.</td><td class="mono">moon run examples/tour</td></tr>
+        <tr><td class="mono">formats</td><td>Every codec, one-shot, with the size it reached and a round-trip check.</td><td class="mono">moon run examples/formats</td></tr>
+        <tr><td class="mono">stream</td><td>The streaming pair, both ways, on a body taken a piece at a time.</td><td class="mono">moon run examples/stream</td></tr>
+        <tr><td class="mono">checksums</td><td>CRC-32, Adler-32 and CRC-32C, one-shot and streamed a piece at a time.</td><td class="mono">moon run examples/checksums</td></tr>
+        <tr><td class="mono">archive</td><td>zip (Zip64, descriptors, a password) and tar, tar.gz and 7z.</td><td class="mono">moon run examples/archive</td></tr>
+        <tr><td class="mono">bundle</td><td>A small release packer: stream-compress, wrap in four containers, read back.</td><td class="mono">moon run examples/bundle</td></tr>
+        <tr><td class="mono">vectors</td><td>The byte streams handed to an independent reference decoder for conformance.</td><td class="mono">moon run examples/vectors</td></tr>
+      </tbody>
+    </table>
   </div>
 </section>
 

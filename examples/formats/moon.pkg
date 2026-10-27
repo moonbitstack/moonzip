@@ -1,0 +1,15 @@
+// Every codec in one place: `moon run examples/formats`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/deflate",
+  "moonbitstack/moonzip/gzip",
+  "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonzip/lz4",
+  "moonbitstack/moonzip/snappy",
+  "moonbitstack/moonzip/lzma",
+  "moonbitstack/moonzip/xz",
+  "moonbitstack/moonzip/bzip2",
+  "moonbitstack/moonzip/zstd",
+  "moonbitstack/moonzip/brotli",
+}

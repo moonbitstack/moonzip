@@ -1,0 +1,6 @@
+// The smallest program that uses the library: `moon run examples/minimal`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/gzip",
+}

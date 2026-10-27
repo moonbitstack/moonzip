@@ -1,0 +1,9 @@
+// A small release packer: `moon run examples/bundle`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/gzip",
+  "moonbitstack/moonzip/tar",
+  "moonbitstack/moonzip/zip",
+  "moonbitstack/moonzip/sevenz",
+}

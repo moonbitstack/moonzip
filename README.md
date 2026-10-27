@@ -28,8 +28,16 @@ let members = @zip.unzip(archive[:])
 | `zstd` | Frames, blocks, FSE and Huffman | RFC 8878 |
 | `brotli` | Meta-blocks, contexts, block types and the 122 KB dictionary | RFC 7932 |
 
-Run `moon run examples/tour` for the surface in one go, `examples/stream` for the
-streaming pair, and `examples/archive` for the two containers.
+Run any of them with `moon run examples/<name>`:
+
+- `minimal` — the smallest program: compress and read back one buffer.
+- `tour` — the surface in one go: deflate, gzip, zlib and brotli, the two checksums, and a tampered stream refused.
+- `formats` — every codec, one-shot, with the size it reached and a round-trip check.
+- `stream` — the streaming pair, both ways, on a body taken a piece at a time.
+- `checksums` — CRC-32, Adler-32 and CRC-32C, one-shot and streamed a piece at a time.
+- `archive` — zip (Zip64, descriptors, a password) and tar, tar.gz and 7z.
+- `bundle` — a small release packer: stream-compress, wrap in four containers, read back.
+- `vectors` — the byte streams handed to an external checker for conformance.
 
 Nothing in this library is a stub that returns its input; a format is either
 implemented or it is refused by name.
@@ -324,8 +332,8 @@ It does not use the dictionary and does not split blocks. On the body in the tab
 below — 184,000 bytes of repetitive English — it reaches 682 bytes, ahead of gzip
 at 1,983 and zstd at 3,042, because one long match is worth more than everything
 the fancier models add. On prose it lands where gzip does: this repository's own
-README and homepage, 61,925 bytes, come out at 19,538 against `gzip -9`'s 19,506,
-which is 0.2%. What it loses to context modelling it wins back with longer
+README and homepage, 61,925 bytes, come out at 19,538 from brotli and 19,506
+from its own gzip writer — within 0.2%. What it loses to context modelling it wins back with longer
 distances, and on text that is the whole trade.
 
 Four things about this format cost real time:
@@ -403,8 +411,6 @@ specifies them — `gzip` puts CRC-32 in its trailer, `zip` in every entry, `sna
 puts CRC-32C in every chunk — and none of them should import another to reach it.
 Each has a struct beside the one-shot function (`Crc`, `Adler`, `Castagnoli`) for
 a body that is compressed as it arrives and cannot be checksummed in one call.
-When the checksum package in `mooncrypt` lands they move there and are re-exported
-from here.
 
 ## Why one package per format
 
