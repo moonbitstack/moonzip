@@ -588,6 +588,17 @@ def render_package(short, pkg):
 
 # ----------------------------------------------------------------------- shell
 
+SCROLLBAR_CSS = """
+/* The page scroll bar shows while the page moves or under the pointer and
+   hides a moment after; it keeps its place, so nothing shifts. */
+@supports selector(::-webkit-scrollbar) {
+  html:not(.scrolling)::-webkit-scrollbar-thumb { background: transparent; border-color: transparent; box-shadow: none; }
+}
+@supports not selector(::-webkit-scrollbar) {
+  html:not(.scrolling) { scrollbar-color: transparent transparent; }
+}
+"""
+
 PAGE_CSS = """
 :root {
   --paper: #F2EFE7; --paper-deep: #E7E2D5; --ink: #191C1B; --ink-soft: #4A4F4B;
@@ -753,7 +764,8 @@ def build_html(packages):
         '<link rel="icon" href="data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' '
         'viewBox=\'0 0 32 32\'><rect width=\'32\' height=\'32\' fill=\'%23191C1B\'/>'
         '<path d=\'M6 10h20M6 16h14M6 22h20\' stroke=\'%23C99A2E\' stroke-width=\'3\'/></svg>">\n'
-        '<style>' + PAGE_CSS + '</style>\n</head>\n<body>\n'
+        '<style>' + PAGE_CSS + SCROLLBAR_CSS + '</style>\n'
+        '<script type="module" src="scrollbar.js"></script>\n</head>\n<body>\n'
         '<nav class="spine" aria-label="Site">\n'
         '<svg class="spine__mark" viewBox="0 0 32 32" aria-hidden="true">'
         '<rect width="32" height="32"></rect>'

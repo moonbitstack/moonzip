@@ -147,7 +147,17 @@ footer { padding: 54px 7vw 70px; border-top: 1px solid var(--line); display: fle
 footer b { color: var(--ink); font-weight: 600; }
 footer a { color: var(--ink-soft); text-decoration: none; border-bottom: 1px solid var(--line); }
 footer a:hover { color: var(--ink); border-color: var(--ink); }
+
+/* The page scroll bar shows while the page moves or under the pointer and
+   hides a moment after; it keeps its place, so nothing shifts. */
+@supports selector(::-webkit-scrollbar) {
+  html:not(.scrolling)::-webkit-scrollbar-thumb { background: transparent; border-color: transparent; box-shadow: none; }
+}
+@supports not selector(::-webkit-scrollbar) {
+  html:not(.scrolling) { scrollbar-color: transparent transparent; }
+}
 </style>
+<script type="module" src="scrollbar.js"></script>
 </head>
 <body>
 <nav class="spine" aria-label="Site">
