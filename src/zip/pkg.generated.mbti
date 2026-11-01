@@ -23,11 +23,15 @@ pub fn split(BytesView, Int32) -> Array[Bytes]
 
 pub fn unzip(BytesView, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Array[Entry] raise @moonzip.Refused
 
+pub fn unzip_spanned(ArrayView[Bytes], limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Array[Entry] raise @moonzip.Refused
+
 pub fn unzip_split(ArrayView[Bytes], limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Array[Entry] raise @moonzip.Refused
 
 pub fn volume_names(String, Int32) -> Array[String]
 
 pub fn zip(ArrayView[Entry], level? : Int32, codecs? : ArrayView[&Codec], zip64? : Bool, descriptor? : Bool, password? : String, aes? : Int32, ae? : Int32) -> Bytes
+
+pub fn zip_spanned(ArrayView[Entry], Int32, level? : Int32, codecs? : ArrayView[&Codec], descriptor? : Bool, password? : String, aes? : Int32, ae? : Int32) -> Array[Bytes]
 
 pub fn zip_split(ArrayView[Entry], Int32, level? : Int32, codecs? : ArrayView[&Codec], zip64? : Bool, descriptor? : Bool, password? : String, aes? : Int32, ae? : Int32) -> Array[Bytes]
 

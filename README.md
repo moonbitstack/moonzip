@@ -200,6 +200,23 @@ let parts = @zip.zip_split(entries[:], 65536)  // volumes of at most 64 KiB
 let back = @zip.unzip_split(parts)             // if it arrives as several files
 ```
 
+Two models, and the difference is what the headers say. `split` cuts a finished
+archive into byte ranges and leaves every offset absolute — the pieces must be
+rejoined before anything reads them. `zip_spanned` writes the older multi-disk
+form instead: each member's directory record carries the disk it starts on and its
+offset from that disk's first byte, and the end record names the last disk and
+where the directory begins, which is what an `unzip` that reads disk by disk
+expects. `unzip_spanned` joins the disks, translates every disk-relative offset
+back to one coordinate space, and reads the result.
+
+```moonbit
+let disks = @zip.zip_spanned(entries[:], 65536)  // true spanned disks
+@zip.unzip_spanned(disks)                        // disk numbers translated back
+```
+
+A spanned archive here keeps every offset in thirty-two bits, so a member that
+would need Zip64 is refused rather than written with a field it cannot agree with.
+
 **A method this package does not implement** — bzip2 is 12, LZMA is 14 — is a
 `Codec` away rather than an edit here:
 
