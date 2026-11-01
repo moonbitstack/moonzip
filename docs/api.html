@@ -743,13 +743,13 @@ reference encoder that are about ratio rather than about the format.</p><div cla
 Huffman codes computed from the exact symbol counts. <code>quality</code> trades time
 for ratio by deepening the chain search and adding a lazy step; quality 10 and 11
 also model literals by context — four context modes, 64 sub-alphabets, grouped into
-at most six codes — split the command stream into two block types, and code words
+at most six codes — split the command and literal streams into two block types each, and code words
 the static dictionary already knows as dictionary references, under the 54
 transforms whose prefix is empty — identity, uppercase-first and their suffixed
 spellings. The searches price a candidate by writing its code
 to a throwaway stream and counting the bits, so neither can make the output
-larger. What the writer still does not do is split the <em>literal</em> stream, or reach
-the transforms whose prefix is not empty.</p>
+larger. What the writer still does not do is reach the transforms whose prefix is not
+empty.</p>
 <p>That is a choice, not a gap. What is left is search over the same format the
 reader already implements, and a writer that did all of it would need much of the
 reference encoder's 30,000 lines to be worth the difference. This one is correct,

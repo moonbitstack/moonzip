@@ -137,6 +137,10 @@ fn write_block(
   // Literals counted per context: which of the 64 sub-alphabets each one falls in,
   // decided by the two bytes before it. Only filled when the block models them.
   let ctx_hist = FixedArray::make(if contexts { 64 * 256 } else { 256 }, 0)
+  // Where each literal sits in the input, in the order they are emitted. The
+  // literal stream can be cut into two block types like the command stream, and
+  // that cut falls between two of these.
+  let lit_pos : Array[Int32] = []
   let offsets = FixedArray::make(64, 0)
   let mut cursor = at
   let mut index = 0
@@ -152,17 +156,8 @@ fn write_block(
       let byte = data[cursor + i].to_int()
       literals[byte] += 1
       if contexts {
-        let before = if cursor + i > 0 {
-          data[cursor + i - 1].to_int()
-        } else {
-          0
-        }
-        let further = if cursor + i > 1 {
-          data[cursor + i - 2].to_int()
-        } else {
-          0
-        }
-        ctx_hist[context_id(mode, before, further) * 256 + byte] += 1
+        ctx_hist[literal_context(data, cursor + i, mode) * 256 + byte] += 1
+        lit_pos.push(cursor + i)
       }
     }
     cursor += step.insert + step.taken
@@ -172,17 +167,8 @@ fn write_block(
     let byte = data[cursor + i].to_int()
     literals[byte] += 1
     if contexts {
-      let before = if cursor + i > 0 {
-        data[cursor + i - 1].to_int()
-      } else {
-        0
-      }
-      let further = if cursor + i > 1 {
-        data[cursor + i - 2].to_int()
-      } else {
-        0
-      }
-      ctx_hist[context_id(mode, before, further) * 256 + byte] += 1
+      ctx_hist[literal_context(data, cursor + i, mode) * 256 + byte] += 1
+      lit_pos.push(cursor + i)
     }
   }
   // The tail command is part of the stream like any other, so it has to be in
@@ -218,19 +204,26 @@ fn write_block(
   // this one did; the context model asks instead which of 64 sub-alphabets each
   // literal falls in and groups those that want the same code, refusing the whole
   // exercise when a second code does not pay for its description.
-  let (lit_codes, lit_map) = if contexts {
-    group_contexts(ctx_hist)
-  } else {
-    (1, FixedArray::make(64, 0))
-  }
-  let lit_trees : Array[Tree] = []
-  if lit_codes <= 1 {
-    lit_trees.push(Tree::of(literals, 15))
-  } else {
-    for g in 0..<lit_codes {
-      lit_trees.push(Tree::of(cluster_hist(ctx_hist, lit_map, g), 15))
-    }
-  }
+  let lit = build_literal_codes(
+    ctx_hist, literals, lit_pos, data, mode, contexts, split,
+  )
+  let lit_blocks = lit.blocks
+  let lit_cut = lit.cut
+  let lit_total = lit.total
+  let lit_map = lit.map
+  let lit_trees = lit.trees
+  let lit_n = lit_pos.length()
+  let (lc0, lb0, le0) = block_len_code(lit_cut)
+  let (lc1, lb1, le1) = block_len_code(lit_n - lit_cut)
+  let lit_type_widths = FixedArray::make(4, 0)
+  lit_type_widths[2] = 1
+  lit_type_widths[3] = 1
+  let lit_type_codes = canonical_codes(lit_type_widths, 4)
+  let lit_size_widths = FixedArray::make(26, 0)
+  lit_size_widths[lc0] = 1
+  lit_size_widths[lc1] = 1
+  let lit_size_single = lc0 == lc1
+  let lit_size_codes = canonical_codes(lit_size_widths, 26)
   let command_tree0 = Tree::of(commands0, 15)
   let mut command_tree1 = command_tree0
   if split_here {
@@ -261,7 +254,17 @@ fn write_block(
     w.put((stored >> (i * 4)) & 0xF, 4)
   }
   w.put(0, 1) // compressed, not stored
-  w.put(0, 1) // literals: one block type
+  if lit_blocks == 2 {
+    w.put(1, 1) // literals: two block types
+    w.put(0, 3)
+    write_prefix(w, lit_type_widths, 4)
+    write_prefix(w, lit_size_widths, 26)
+    emit_block_len(
+      w, lit_size_widths, lit_size_codes, lit_size_single, lc0, lb0, le0,
+    )
+  } else {
+    w.put(0, 1) // literals: one block type
+  }
   if split_here {
     w.put(1, 1) // commands: two block types
     w.put(0, 3)
@@ -273,19 +276,23 @@ fn write_block(
   }
   w.put(0, 1) // distances: one block type
   w.put(0, 6) // NPOSTFIX 0, NDIRECT 0
-  w.put(mode, 2) // context mode for the one literal block type
-  if lit_codes <= 1 {
+  // One context mode per literal block type, even when both are the same: the
+  // format has no way to share them.
+  for _ in 0..<lit_blocks {
+    w.put(mode, 2)
+  }
+  if lit_total <= 1 {
     w.put(0, 1) // one literal code everywhere
   } else {
-    write_count(w, lit_codes - 1)
+    write_count(w, lit_total - 1)
     w.put(0, 1) // the map has no run-length escape
-    let map_hist = FixedArray::make(lit_codes, 0)
-    for c in 0..<64 {
+    let map_hist = FixedArray::make(lit_total, 0)
+    for c in 0..<(lit_blocks * 64) {
       map_hist[lit_map[c]] += 1
     }
     let map_tree = Tree::of(map_hist, 15)
-    write_prefix(w, map_tree.widths, lit_codes)
-    for c in 0..<64 {
+    write_prefix(w, map_tree.widths, lit_total)
+    for c in 0..<(lit_blocks * 64) {
       map_tree.write(w, lit_map[c])
     }
     w.put(0, 1) // the map is not move-to-front coded
@@ -301,6 +308,9 @@ fn write_block(
   write_prefix(w, distance_tree.widths, 64)
   cursor = at
   index = 0
+  // How many literals have been written, which is what the literal block switch
+  // counts.
+  let mut lit_seen = 0
   for step in steps {
     if split_here && index == cut {
       write_code(w, type_widths, type_codes, 3)
@@ -318,21 +328,21 @@ fn write_block(
     w.put(copy_extra, copy_bits[copy_code])
     for i in 0..<step.insert {
       let byte = data[cursor + i].to_int()
-      if lit_codes <= 1 {
+      if lit_blocks == 2 && lit_seen == lit_cut {
+        write_code(w, lit_type_widths, lit_type_codes, 3)
+        emit_block_len(
+          w, lit_size_widths, lit_size_codes, lit_size_single, lc1, lb1, le1,
+        )
+      }
+      if lit_total <= 1 {
         lit_trees[0].write(w, byte)
       } else {
-        let before = if cursor + i > 0 {
-          data[cursor + i - 1].to_int()
-        } else {
-          0
-        }
-        let further = if cursor + i > 1 {
-          data[cursor + i - 2].to_int()
-        } else {
-          0
-        }
-        lit_trees[lit_map[context_id(mode, before, further)]].write(w, byte)
+        let block = if lit_seen < lit_cut { 0 } else { 1 }
+        lit_trees[lit_map[block * 64 + literal_context(data, cursor + i, mode)]].write(
+          w, byte,
+        )
       }
+      lit_seen += 1
     }
     cursor += step.insert
     let (code, extra, value) = distance_codes.code(
@@ -363,23 +373,35 @@ fn write_block(
     w.put(insert_extra, insert_bits[insert_code])
     for i in 0..<tail {
       let byte = data[cursor + i].to_int()
-      if lit_codes <= 1 {
+      if lit_blocks == 2 && lit_seen == lit_cut {
+        write_code(w, lit_type_widths, lit_type_codes, 3)
+        emit_block_len(
+          w, lit_size_widths, lit_size_codes, lit_size_single, lc1, lb1, le1,
+        )
+      }
+      if lit_total <= 1 {
         lit_trees[0].write(w, byte)
       } else {
-        let before = if cursor + i > 0 {
-          data[cursor + i - 1].to_int()
-        } else {
-          0
-        }
-        let further = if cursor + i > 1 {
-          data[cursor + i - 2].to_int()
-        } else {
-          0
-        }
-        lit_trees[lit_map[context_id(mode, before, further)]].write(w, byte)
+        let block = if lit_seen < lit_cut { 0 } else { 1 }
+        lit_trees[lit_map[block * 64 + literal_context(data, cursor + i, mode)]].write(
+          w, byte,
+        )
       }
+      lit_seen += 1
     }
   }
+}
+
+///|
+/// Which of the 64 literal sub-alphabets the byte at `at` belongs to.
+///
+/// The reader computes this from the bytes it has already produced, so the writer
+/// has to look at the same two bytes of the input — at the start of the stream
+/// there are none, and both sides agree that a missing byte is zero.
+fn literal_context(data : BytesView, at : Int32, mode : Int32) -> Int32 {
+  let before = if at > 0 { data[at - 1].to_int() } else { 0 }
+  let further = if at > 1 { data[at - 2].to_int() } else { 0 }
+  context_id(mode, before, further)
 }
 
 ///|
@@ -415,6 +437,131 @@ fn tree_cost(
     bits += counts[i] * tree.widths[i]
   }
   bits + description
+}
+
+///|
+/// The literal codes for one meta-block: how many block types the literal stream
+/// is cut into, and the codes that serve them.
+priv struct LiteralCodes {
+  blocks : Int32
+  cut : Int32
+  total : Int32
+  map : FixedArray[Int32]
+  trees : Array[Tree]
+}
+
+///|
+/// Build the literal codes, cutting the literal stream in two when that pays.
+///
+/// The context model already gives each of the 64 sub-alphabets the code it wants,
+/// so a second block type is only worth its two context maps and its extra trees
+/// when the two halves of the stream are different *kinds* of text — prose then a
+/// table, say. The test is the same one the other searches use: price both
+/// arrangements exactly and take the cheaper, which is allowed to be the one-block
+/// arrangement it started from.
+fn build_literal_codes(
+  ctx_hist : FixedArray[Int32],
+  literals : FixedArray[Int32],
+  lit_pos : Array[Int32],
+  data : BytesView,
+  mode : Int32,
+  contexts : Bool,
+  split : Bool,
+) -> LiteralCodes {
+  let n = lit_pos.length()
+  if !contexts {
+    return {
+      blocks: 1,
+      cut: n,
+      total: 1,
+      map: FixedArray::make(64, 0),
+      trees: [Tree::of(literals, 15)],
+    }
+  }
+  let (whole_codes, whole_map) = group_contexts(ctx_hist)
+  let mut blocks = 1
+  let mut cut = n
+  let mut first = ctx_hist
+  let mut second = FixedArray::make(1, 0)
+  let mut codes0 = whole_codes
+  let mut map0 = whole_map
+  let mut codes1 = 0
+  let mut map1 = FixedArray::make(64, 0)
+  let mut best = cluster_cost(ctx_hist, whole_map, whole_codes)
+  // Two candidate cuts, because the two natural ones disagree. Half the literals
+  // is half the work; half the *input* is half the content, and on a body that is
+  // prose followed by something else the two land in very different places — the
+  // prose half produces most of the matches and few of the literals.
+  if split && n >= 512 {
+    let middle = (lit_pos[0] + lit_pos[n - 1]) / 2
+    let mut by_position = 1
+    for i in 0..<n {
+      if lit_pos[i] < middle {
+        by_position = i + 1
+      }
+    }
+    let candidates : Array[Int32] = [n / 2, by_position]
+    for half in candidates {
+      if half < 1 || half >= n {
+        continue
+      }
+      let a = FixedArray::make(64 * 256, 0)
+      let b = FixedArray::make(64 * 256, 0)
+      for i in 0..<n {
+        let at = lit_pos[i]
+        let slot = literal_context(data, at, mode) * 256 + data[at].to_int()
+        if i < half {
+          a[slot] += 1
+        } else {
+          b[slot] += 1
+        }
+      }
+      let (ca, ma) = group_contexts(a)
+      let (cb, mb) = group_contexts(b)
+      let two = cluster_cost(a, ma, ca) + cluster_cost(b, mb, cb)
+      if two < best {
+        best = two
+        blocks = 2
+        cut = half
+        first = a
+        second = b
+        codes0 = ca
+        map0 = ma
+        codes1 = cb
+        map1 = mb
+      }
+    }
+  }
+  let total = codes0 + codes1
+  let map = FixedArray::make(blocks * 64, 0)
+  for c in 0..<64 {
+    map[c] = map0[c]
+  }
+  if blocks == 2 {
+    for c in 0..<64 {
+      map[64 + c] = codes0 + map1[c]
+    }
+  }
+  let trees : Array[Tree] = []
+  for g in 0..<total {
+    let h = FixedArray::make(256, 0)
+    for c in 0..<64 {
+      if map[c] == g {
+        let base = c * 256
+        for x in 0..<256 {
+          h[x] += first[base + x]
+        }
+      }
+      if blocks == 2 && map[64 + c] == g {
+        let base = c * 256
+        for x in 0..<256 {
+          h[x] += second[base + x]
+        }
+      }
+    }
+    trees.push(Tree::of(h, 15))
+  }
+  { blocks, cut, total, map, trees, }
 }
 
 ///|

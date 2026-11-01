@@ -215,3 +215,64 @@ test "a capitalised word finds its lowercase entry" {
   let words = compress(body[:], 22, 1 << 24, depth=1024, dictionary=true)
   assert_eq(unbrotli(words[:]), body)
 }
+
+///|
+/// Two halves of the same contexts but different alphabets: bytes whose low six
+/// bits agree, so the context model cannot tell them apart, and only a second
+/// literal block type can.
+///
+/// The cut is worth a lot here — each half spends four bits a byte once it has its
+/// own code where the shared code needs five — and that is the point of the test:
+/// a refactor that quietly stopped cutting the literal stream would leave the two
+/// sizes within a fraction of a percent, as the command split alone is.
+fn two_alphabets() -> Bytes {
+  let out : Array[Byte] = []
+  let mut state : UInt32 = 2463534242U
+  for i in 0..<8000 {
+    state = state * 1103515245U + 12345U
+    let low = ((state >> 16) & 0xF).reinterpret_as_int()
+    if i < 4000 {
+      out.push(low.to_byte())
+    } else {
+      out.push((0x40 + low).to_byte())
+    }
+  }
+  Bytes::from_array(out)
+}
+
+///|
+test "the literal stream is cut when its halves differ" {
+  let body = two_alphabets()
+  let flat = compress(body[:], 22, 1 << 24, contexts=true)
+  let cut = compress(body[:], 22, 1 << 24, contexts=true, split=true)
+  assert_eq(unbrotli(flat[:]), body)
+  assert_eq(unbrotli(cut[:]), body)
+  // Ten percent is far beyond what the command split alone reaches on this body.
+  assert_true(cut.length() * 10 < flat.length() * 9)
+}
+
+///|
+/// On a body that is one kind of text throughout, the cut is declined: the second
+/// block type would cost two context maps and a second set of codes for nothing.
+test "the literal stream is left whole when cutting does not pay" {
+  let words : Array[Bytes] = [
+    b"alpha", b"beta", b"gamma", b"delta", b"epsilon", b"zeta", b"eta", b"theta",
+  ]
+  let out : Array[Byte] = []
+  let mut state : UInt32 = 987654321U
+  for i in 0..<3000 {
+    state = state * 1103515245U + 12345U
+    for b in words[(state >> 16).reinterpret_as_int() % 8] {
+      out.push(b)
+    }
+    out.push(b' ')
+    if i % 9 == 8 {
+      out.push(b'\n')
+    }
+  }
+  let body = Bytes::from_array(out)
+  let flat = compress(body[:], 22, 1 << 24, contexts=true)
+  let cut = compress(body[:], 22, 1 << 24, contexts=true, split=true)
+  assert_eq(unbrotli(cut[:]), body)
+  assert_true(cut.length() <= flat.length())
+}

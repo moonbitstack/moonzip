@@ -406,8 +406,10 @@ because one long match is worth more than everything the fancier models add.
   best, and stops when no split pays or the cap is reached. The routing table that
   says which context uses which code is sent with the stream, so a body whose
   contexts look alike comes out with one code and one bit of map.
-- **A split command stream.** The command stream may be cut in two, each half
-  carrying its own prefix code.
+- **Split streams.** The command stream may be cut in two, and so may the literal
+  stream, each half carrying its own prefix code and — for literals — its own
+  context map. Where each cut falls is searched; both are declined when the extra
+  code does not pay.
 - **The static dictionary.** Words the format already knows are coded as a
   dictionary reference — a distance past the window that names `(transform, word)`
   — instead of their letters. The writer indexes the 13,504 words by their first
@@ -430,23 +432,33 @@ happened here first — a body of short repeated phrases grew by six bytes at
 quality 11. With exact pricing, asking for context modelling or a command split
 can no longer cost bytes, and a test pins that.
 
-On this repository's own documentation — README, homepage and guide, 100,350 bytes
-— quality 9 gives 28,333 and quality 11 gives 26,269, which is 7.3% smaller. The
-literal context model is 531 of those bytes, the command split 60, and the
-dictionary 1,444 — by far the largest, because prose is mostly words the
-dictionary already has, and the affix transforms alone are 500 of them. For scale,
-the reference encoder reaches 25,925 on the same bytes at quality 9 and 23,515 at
-quality 11, so this writer is 9% behind at nine and 12% behind at eleven. What it
-still does not do is split the *literal* stream, and reach the transforms whose
-prefix is not empty; those are most of what is left.
+The literal cut is the one that varies most with the body, and it is measured in
+both directions. On this repository's own documentation it is worth nothing and is
+correctly declined: prose is one kind of text throughout, and the 64 contexts
+already give each letter the code it wants. On a body of two disjoint sixteen-byte
+alphabets whose low six bits agree — so the context model cannot tell the halves
+apart — the same cut is worth 13%: 24,525 bytes to 21,261 on 40,000 bytes. That is
+the shape the feature exists for, and the reason the decision is priced rather than
+assumed either way.
 
-All three new forms are checked against the reference decoder, not just this one:
-a quality-11 stream over a 99,446-byte body, whose header declares two command
-block types and a literal context map where quality 9 declares one block type and
-one code, decodes through `brotli 1.2.0` to the same bytes — including the
-dictionary references, which the reference reader resolves against its own copy of
-the blob. Text and binary bodies were checked the same way, because the two take
-different context modes.
+On this repository's own documentation — README, homepage and guide, about 102 KB
+— quality 9 gives 28,823 bytes and quality 11 gives 26,720, which is 7.3% smaller.
+The literal context model is 534 of those bytes, the stream splits 59, and the
+dictionary 1,485 — by far the largest, because prose is mostly words the dictionary
+already has, and the affix transforms alone are 500 of them. For scale, the
+reference encoder reaches 26,376 on the same bytes at quality 9 and 23,881 at
+quality 11, so this writer is 9% behind at nine and 12% behind at eleven. What it
+still does not do is reach the transforms whose prefix is not empty; that is most
+of what is left.
+
+Every new form is checked against the reference decoder, not just this one: a
+quality-11 stream over a 101 KB body, whose header declares two block types and a
+literal context map where quality 9 declares one of each, decodes through
+`brotli 1.2.0` to the same bytes — including the dictionary references, which the
+reference reader resolves against its own copy of the blob, and the copies whose
+transform produces more bytes than the command's copy length. Text, binary and
+two-alphabet bodies were checked the same way, because each takes a different path
+through the writer.
 
 Four things about this format cost real time:
 
