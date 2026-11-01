@@ -127,3 +127,25 @@ test "an lz4 block past the bound is refused" {
   }
   assert_eq(error, Some(@moonzip.TooBig(limit=1000)))
 }
+
+///|
+/// The chain search is what `level` buys: it walks past the most recent
+/// candidate to an older, longer match. On a body where each chunk is the same
+/// but for one byte the fast search keeps meeting near misses, so the deeper
+/// search must never produce more bytes — and must still round-trip.
+test "the high-compression search never loses to the fast one" {
+  let parts : Array[Byte] = []
+  let base = b"the quick brown "
+  for i in 0..<300 {
+    for b in base {
+      parts.push(b)
+    }
+    parts.push((0x30 + i % 10).to_byte())
+  }
+  let data = Bytes::from_array(parts)
+  let fast = @lz4.lz4(data[:], level=0)
+  let hc = @lz4.lz4(data[:], level=9)
+  assert_true(hc.length() <= fast.length())
+  assert_true(hc.length() < data.length())
+  assert_eq(@lz4.unlz4(hc[:]), data)
+}
