@@ -149,23 +149,32 @@ test "context modelling never costs bytes" {
 }
 
 ///|
-/// The affix table holds the transforms this writer can reach, and each one has to
-/// have an empty prefix — that is the property the index depends on, because the
-/// word then starts at the position being searched.
-test "every reachable transform has an empty prefix" {
+/// The affix table holds every transform whose word can be found by the index:
+/// plain, capitalised, prefixed or not. What it must not hold is one of the kinds
+/// that drop bytes, because there the word is longer than the text it has to match.
+test "the affix table holds the searchable transforms" {
   let affixes = affix_table()
-  assert_true(affixes.length() > 40)
+  assert_eq(affixes.length(), 84)
+  let mut prefixed = 0
   let mut plain_capital = false
   let mut word_and_space = false
   for affix in affixes {
-    assert_true(fragment_is_empty(transforms[affix.id * 3]))
-    if affix.capital && affix.suffix.length() == 0 {
+    let kind = transforms[affix.id * 3 + 1]
+    assert_true(kind == 0 || kind == TRANSFORM_UPPERCASE_KIND)
+    if affix.prefix.length() > 0 {
+      prefixed += 1
+    }
+    if affix.capital && affix.prefix.length() == 0 && affix.suffix.length() == 0 {
       plain_capital = true
     }
-    if !affix.capital && affix.suffix.length() == 1 && affix.suffix[0] == b' ' {
+    if !affix.capital &&
+      affix.prefix.length() == 0 &&
+      affix.suffix.length() == 1 &&
+      affix.suffix[0] == b' ' {
       word_and_space = true
     }
   }
+  assert_eq(prefixed, 28)
   assert_true(plain_capital)
   assert_true(word_and_space)
 }
@@ -275,4 +284,19 @@ test "the literal stream is left whole when cutting does not pay" {
   let cut = compress(body[:], 22, 1 << 24, contexts=true, split=true)
   assert_eq(unbrotli(cut[:]), body)
   assert_true(cut.length() <= flat.length())
+}
+
+///|
+/// A transform whose prefix is not empty is found by looking past the prefix: the
+/// index is built on the word's own bytes, so the probe happens where the word
+/// starts rather than where the match starts, and the length reported counts from
+/// the match.
+test "a prefixed transform is found past its prefix" {
+  let index = DictIndex::build()
+  let text = b"xx world"
+  let (word, taken, _, transform) = index.find(text[:], 2, text.length())
+  assert_eq(word, 5)
+  assert_eq(taken, 6)
+  let prefix = transforms[transform * 3]
+  assert_true(prefix_suffix[prefix_suffix_map[prefix]].to_int() > 0)
 }

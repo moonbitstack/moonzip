@@ -19,42 +19,41 @@
 const DICT_HASH_BITS : Int32 = 16
 
 ///|
-/// The transforms this writer emits: the ones whose prefix is empty.
+/// The transforms this writer can reach.
 ///
-/// The format has 121 and most of them are affix surgery. A transform with a
-/// prefix puts bytes *before* the word, so the text at the position no longer
-/// begins with the word — the index, which is built on the word's own first four
-/// bytes, cannot find it, and searching for it would need a second index over
-/// prefixed spellings. A transform with an empty prefix leaves the word at the
-/// front of the text, so the same probe finds it and the suffix is only a
-/// comparison of a few bytes after it. That is the cut this writer makes: fifty
-/// four transforms, including `word + " "`, `word + "."`, `word + ", "` and the
-/// capitalised spellings of each, which between them cover the punctuation that
-/// follows most words in prose.
+/// Every transform is a prefix, a kind, and a suffix. Three shapes exist and two
+/// of them are searchable with one index:
 ///
-/// A transform's affix does not have to keep the word's length. The copy length
-/// in the command is the *word's* length — it selects the bucket — and the
-/// transform decides how many bytes actually come out. So `time` with the
-/// "word and a space" transform is a copy of four bytes that produces five.
+/// * **No prefix.** The word starts at the position being searched, so the
+///   first-four-bytes index finds it and the work is comparing the suffix after.
+///   That covers `word + " "`, `word + "."`, `word + " the "` and the capitalised
+///   spelling of each — the punctuation that follows most words in prose.
+/// * **A prefix.** The text starts with those bytes and the word starts just past
+///   them. The same index still works, one probe further in, and the prefix is
+///   checked before the probe is worth making. That covers `" " + word`,
+///   `" the " + word + " of "`, `"s " + word + " "` and the contraction spellings.
+/// * **A kind that drops bytes** — omit last n, omit first n. The word is then
+///   longer than the text it has to match, so the entry the index finds is not the
+///   thing being compared. Left out.
+///
+/// That is 84 of the 121.
+///
+/// An affix does not have to keep the word's length. The copy length in the
+/// command is the *word's* length — it selects the bucket — and the transform
+/// decides how many bytes actually come out. So `time` with the "word and a space"
+/// transform is a copy of four bytes that produces five.
 const TRANSFORM_IDENTITY_ID : Int32 = 0
 
 ///|
 const TRANSFORM_UPPERCASE_KIND : Int32 = 10
 
 ///|
-
-///|
-/// One transform this writer can reach, with its suffix spelled out.
+/// One transform this writer can reach, with its affixes spelled out.
 priv struct Affix {
   id : Int32
+  prefix : Bytes
   suffix : Bytes
   capital : Bool
-}
-
-///|
-/// Is this fragment id the empty fragment?
-fn fragment_is_empty(id : Int32) -> Bool {
-  prefix_suffix[prefix_suffix_map[id]].to_int() == 0
 }
 
 ///|
@@ -70,19 +69,19 @@ fn fragment_bytes(id : Int32) -> Bytes {
 }
 
 ///|
-/// The transforms whose prefix is empty and whose kind only appends a suffix.
+/// The transforms this writer emits.
 ///
 /// Kind zero is the plain transform and kind ten uppercases the first character;
-/// the other kinds drop bytes from one end, which would make the word longer than
-/// the text it has to match and is left out here.
+/// the other kinds drop bytes from one end and are left out, because the word is
+/// then longer than the text it has to match.
 fn affix_table() -> Array[Affix] {
   let out : Array[Affix] = []
   for t in 0..<TRANSFORM_COUNT {
     let kind = transforms[t * 3 + 1]
-    if (kind == 0 || kind == TRANSFORM_UPPERCASE_KIND) &&
-      fragment_is_empty(transforms[t * 3]) {
+    if kind == 0 || kind == TRANSFORM_UPPERCASE_KIND {
       out.push({
         id: t,
+        prefix: fragment_bytes(transforms[t * 3]),
         suffix: fragment_bytes(transforms[t * 3 + 2]),
         capital: kind == TRANSFORM_UPPERCASE_KIND,
       })
@@ -132,7 +131,11 @@ priv struct DictIndex {
   next : FixedArray[Int32]
   lens : FixedArray[Int32]
   slots : FixedArray[Int32]
-  affixes : Array[Affix]
+  /// The three groups the search treats differently: no prefix and no capital, no
+  /// prefix and a capital, and everything with a prefix.
+  plain : Array[Affix]
+  capital : Array[Affix]
+  prefixed : Array[Affix]
 }
 
 ///|
@@ -163,7 +166,19 @@ fn DictIndex::build() -> DictIndex {
       ordinal += 1
     }
   }
-  { heads, next, lens, slots, affixes: affix_table(), }
+  let plain : Array[Affix] = []
+  let capital : Array[Affix] = []
+  let prefixed : Array[Affix] = []
+  for affix in affix_table() {
+    if affix.prefix.length() > 0 {
+      prefixed.push(affix)
+    } else if affix.capital {
+      capital.push(affix)
+    } else {
+      plain.push(affix)
+    }
+  }
+  { heads, next, lens, slots, plain, capital, prefixed, }
 }
 
 ///|
@@ -192,14 +207,69 @@ fn dict_spells(
 }
 
 ///|
-/// Does `suffix` spell the input just past `at`?
-fn suffix_spells(data : BytesView, at : Int32, suffix : Bytes) -> Bool {
-  for i in 0..<suffix.length() {
-    if data[at + i] != suffix[i] {
+/// Does `bytes` spell the input at `at`?
+fn spells_at(data : BytesView, at : Int32, bytes : Bytes) -> Bool {
+  for i in 0..<bytes.length() {
+    if data[at + i] != bytes[i] {
       return false
     }
   }
   true
+}
+
+///|
+/// The longest dictionary reference whose word starts at `wstart`.
+///
+/// Every affix in `group` shares the same word position, so the walk down the hash
+/// chain happens once and the affixes only compete on their suffixes. `plen` is the
+/// prefix length already accounted for before `wstart`, which is what makes the
+/// returned length a count from the *original* position.
+fn DictIndex::probe(
+  self : DictIndex,
+  data : BytesView,
+  end : Int32,
+  wstart : Int32,
+  capital : Bool,
+  group : Array[Affix],
+  plen : Int32,
+) -> (Int32, Int32, Int32, Int32) {
+  let room = end - wstart
+  if room < 4 {
+    return (0, 0, 0, 0)
+  }
+  let first = data[wstart].to_int()
+  let head = if capital { dict_lower(first) } else { first }
+  let key = dict_key(
+    head,
+    data[wstart + 1].to_int(),
+    data[wstart + 2].to_int(),
+    data[wstart + 3].to_int(),
+  )
+  let mut best = 0
+  let mut best_word = 0
+  let mut best_slot = 0
+  let mut best_transform = TRANSFORM_IDENTITY_ID
+  let mut ordinal = self.heads[key]
+  while ordinal >= 0 {
+    let word_len = self.lens[ordinal]
+    let slot = self.slots[ordinal]
+    if word_len <= room && dict_spells(data, wstart, word_len, slot, capital) {
+      for affix in group {
+        let tail = word_len + affix.suffix.length()
+        let taken = plen + tail
+        if tail <= room &&
+          taken > best &&
+          spells_at(data, wstart + word_len, affix.suffix) {
+          best = taken
+          best_word = word_len
+          best_slot = slot
+          best_transform = affix.id
+        }
+      }
+    }
+    ordinal = self.next[ordinal]
+  }
+  (best, best_word, best_slot, best_transform)
 }
 
 ///|
@@ -209,7 +279,11 @@ fn suffix_spells(data : BytesView, at : Int32, suffix : Bytes) -> Bool {
 /// Word length is what the command carries — it selects the bucket — and bytes
 /// produced is what the reader ends up appending, which is the same number only
 /// when the transform adds nothing. A word length of zero means the dictionary has
-/// nothing here, which is the answer for most positions and costs one hash probe.
+/// nothing here, which is the answer for most positions and costs two hash probes.
+///
+/// The prefixed transforms are tried only when their prefix actually spells at the
+/// position, which for most positions is a single byte comparison each and lets the
+/// common case pay nothing for them.
 fn DictIndex::find(
   self : DictIndex,
   data : BytesView,
@@ -220,47 +294,38 @@ fn DictIndex::find(
   if room < 4 {
     return (0, 0, 0, 0)
   }
-  let first = data[at].to_int()
-  let second = data[at + 1].to_int()
-  let third = data[at + 2].to_int()
-  let fourth = data[at + 3].to_int()
-  let mut best = 0
-  let mut best_word = 0
-  let mut best_slot = 0
-  let mut best_transform = TRANSFORM_IDENTITY_ID
-  let mut probe = 0
-  while probe < 2 {
-    let head = if probe == 0 { first } else { dict_lower(first) }
-    // The second probe is skipped when the first byte has no case — then it would
-    // repeat the first probe — and it only looks for the capitalised transforms.
-    if probe == 0 || head != first {
-      let capital = probe == 1
-      let mut ordinal = self.heads[dict_key(head, second, third, fourth)]
-      while ordinal >= 0 {
-        let word_len = self.lens[ordinal]
-        // A longer transform on the word already found can only win if the word
-        // itself did, so a word shorter than the best is not worth checking.
-        if word_len <= room &&
-          dict_spells(data, at, word_len, self.slots[ordinal], capital) {
-          let slot = self.slots[ordinal]
-          for affix in self.affixes {
-            if affix.capital == capital {
-              let taken = word_len + affix.suffix.length()
-              if taken > best &&
-                taken <= room &&
-                suffix_spells(data, at + word_len, affix.suffix) {
-                best = taken
-                best_word = word_len
-                best_slot = slot
-                best_transform = affix.id
-              }
-            }
-          }
-        }
-        ordinal = self.next[ordinal]
-      }
+  let (t0, w0, s0, r0) = self.probe(data, end, at, false, self.plain, 0)
+  let (t1, w1, s1, r1) = self.probe(data, end, at, true, self.capital, 0)
+  let mut best = t0
+  let mut best_word = w0
+  let mut best_slot = s0
+  let mut best_transform = r0
+  if t1 > best {
+    best = t1
+    best_word = w1
+    best_slot = s1
+    best_transform = r1
+  }
+  for affix in self.prefixed {
+    let plen = affix.prefix.length()
+    if room < plen + 4 || !spells_at(data, at, affix.prefix) {
+      continue
     }
-    probe += 1
+    let one : Array[Affix] = [affix]
+    let (t, w, s, r) = self.probe(
+      data,
+      end,
+      at + plen,
+      affix.capital,
+      one,
+      plen,
+    )
+    if t > best {
+      best = t
+      best_word = w
+      best_slot = s
+      best_transform = r
+    }
   }
   (best_word, best, best_slot, best_transform)
 }
