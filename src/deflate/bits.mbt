@@ -137,6 +137,29 @@ fn BitReader::bits(self : BitReader, count : Int32) -> Int32? {
 }
 
 ///|
+/// `count` bits, or -1 when the buffer does not hold that many.
+///
+/// The `Option` form above is right where a read happens once per block — a
+/// header, a stored length — and wrong where it happens twice per match, which is
+/// the inner loop: every call there builds a value the caller only wants to test.
+/// A sentinel costs nothing because no field in the format is sixteen bits wide
+/// and able to hold the sign bit.
+fn BitReader::take(self : BitReader, count : Int32) -> Int32 {
+  while self.held < count {
+    if self.pos >= self.buf.length() {
+      return -1
+    }
+    self.acc = self.acc | (self.buf[self.pos].to_int() << self.held)
+    self.pos += 1
+    self.held += 8
+  }
+  let value = self.acc & ((1 << count) - 1)
+  self.acc = self.acc >> count
+  self.held -= count
+  value
+}
+
+///|
 /// Bytes still buffered and not yet pulled into the accumulator.
 fn BitReader::remaining(self : BitReader) -> Int32 {
   self.buf.length() - self.pos

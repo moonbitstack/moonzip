@@ -522,25 +522,27 @@ range rather than a constant, so read them as orders of magnitude.
 
 | Codec | Write MB/s | Read MB/s |
 |:--|--:|--:|
-| `deflate` | 10 | 74 |
-| `gzip` | 9 | 62 |
-| `zlib` | 9 | 68 |
+| `deflate` | 10 | 78 |
+| `gzip` | 9 | 65 |
+| `zlib` | 9 | 72 |
 | `zstd` | 21 | 52 |
 | `brotli` (quality 9) | 1.5 | 55 |
 
 The same body through C zlib on the same machine — `zlib.compress(_, 6)` from
 Python — writes at about 18 MB/s and reads at 200–365 MB/s depending on how busy
 the machine is. The deflate writer is therefore within a factor of two of zlib.
-The reader is a fifth of zlib's decode rate when zlib measures 365, and nearer a
-third when it measures 200: about half again as fast as it was, and still short of
-the quarter this library set for itself.
+The reader is better than a fifth of zlib's decode rate when zlib measures 346, and
+nearer a third when it measures 200: about half again as fast as it was, and still
+short of the quarter this library set for itself.
 
-Three things earned that, and the third is the one that had been tried and
+Four things earned that, and the fourth is the one that had been tried and
 abandoned. The Huffman decoder now looks nine bits ahead and names most codes with
 a single table lookup instead of walking them a bit at a time. A match is copied
 with its two per-byte branches — "is this byte in the kept history or the output",
 "has the limit been reached" — hoisted out of the loop, since the whole match
-answers both once. And the look-ahead itself, which broke the compressed-to-stored
+answers both once. The symbol loop runs in its own function, so the stage machine
+is not re-entered — and the buffer guard paid again — for every byte of output.
+And the look-ahead itself, which broke the compressed-to-stored
 transition the first time it was attempted: pulling bytes into the accumulator is
 fine until `align` throws that accumulator away and takes whole bytes of the stored
 block's payload with it. The mistake was to conclude that the reader cannot look

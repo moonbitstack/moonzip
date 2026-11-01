@@ -90,17 +90,19 @@ fn fast_table(
 }
 
 ///|
-/// Read one symbol, a bit at a time.
+/// Read one symbol: one lookup for a code of nine bits or fewer, and a bit at a
+/// time past that.
 ///
-/// Codes of a given width are consecutive integers, and widths are assigned
+/// The table answers the common case, and the fallback below is what it always
+/// was. Codes of a given width are consecutive integers, and widths are assigned
 /// shortest first, so "is this code one of the ones at this width" is a
 /// subtraction — no table to build and no way for a malformed length list to
 /// index out of one.
 ///
-/// `None` means the input ran out part-way through. The caller only calls this
-/// with enough bytes buffered to finish the symbol, so in practice `None` means
-/// the stream ended early — which the caller turns into the error it is.
-fn Huffman::read(self : Huffman, br : BitReader) -> Int32? {
+/// `-1` means the input ran out part-way through. The caller only calls this with
+/// enough bytes buffered to finish the symbol, so in practice that means the stream
+/// ended early — which the caller turns into the error it is.
+fn Huffman::sym(self : Huffman, br : BitReader) -> Int32 {
   // The look-ahead, inlined: pull until the accumulator holds enough, look at the
   // low bits, and consume exactly the width the entry names. Nothing is taken
   // before the width is known, so the rest of the look-ahead stays where the next
@@ -119,26 +121,27 @@ fn Huffman::read(self : Huffman, br : BitReader) -> Int32? {
       let width = entry & 0xF
       br.acc = br.acc >> width
       br.held -= width
-      return Some(entry >> 4)
+      return entry >> 4
     }
   }
   let mut code = 0
   let mut first = 0
   let mut index = 0
   for width in 1..<16 {
-    match br.bits(1) {
-      None => return None
-      Some(bit) => code = code | bit
+    let bit = br.take(1)
+    if bit < 0 {
+      return -1
     }
+    code = code | bit
     let count = self.counts[width]
     if code - first < count {
-      return Some(self.symbols[index + (code - first)])
+      return self.symbols[index + (code - first)]
     }
     index += count
     first = (first + count) << 1
     code = code << 1
   }
-  None
+  -1
 }
 
 ///|

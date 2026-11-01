@@ -968,45 +968,45 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
           self.dist = Huffman::of(self.dist_widths, self.ndist)
           self.stage = Compressed
         } else {
-          match self.code_len.read(self.br) {
-            None => raise @moonzip.Truncated(at=self.br.at())
-            Some(sym) =>
-              if sym < 16 {
-                self.put_width(sym)
-              } else {
-                let (repeat, value) = match sym {
-                  16 => {
-                    if self.at == 0 {
-                      raise @moonzip.Code(at=self.br.at())
-                    }
-                    let extra = match self.br.bits(2) {
-                      None => raise @moonzip.Truncated(at=self.br.at())
-                      Some(v) => v
-                    }
-                    (3 + extra, self.width_at(self.at - 1))
-                  }
-                  17 => {
-                    let extra = match self.br.bits(3) {
-                      None => raise @moonzip.Truncated(at=self.br.at())
-                      Some(v) => v
-                    }
-                    (3 + extra, 0)
-                  }
-                  _ => {
-                    let extra = match self.br.bits(7) {
-                      None => raise @moonzip.Truncated(at=self.br.at())
-                      Some(v) => v
-                    }
-                    (11 + extra, 0)
-                  }
-                }
-                if self.at + repeat > self.nlit + self.ndist {
+          let sym = self.code_len.sym(self.br)
+          if sym < 0 {
+            raise @moonzip.Truncated(at=self.br.at())
+          }
+          if sym < 16 {
+            self.put_width(sym)
+          } else {
+            let (repeat, value) = match sym {
+              16 => {
+                if self.at == 0 {
                   raise @moonzip.Code(at=self.br.at())
                 }
-                for _ in 0..<repeat {
-                  self.put_width(value)
+                let extra = match self.br.bits(2) {
+                  None => raise @moonzip.Truncated(at=self.br.at())
+                  Some(v) => v
                 }
+                (3 + extra, self.width_at(self.at - 1))
               }
+              17 => {
+                let extra = match self.br.bits(3) {
+                  None => raise @moonzip.Truncated(at=self.br.at())
+                  Some(v) => v
+                }
+                (3 + extra, 0)
+              }
+              _ => {
+                let extra = match self.br.bits(7) {
+                  None => raise @moonzip.Truncated(at=self.br.at())
+                  Some(v) => v
+                }
+                (11 + extra, 0)
+              }
+            }
+            if self.at + repeat > self.nlit + self.ndist {
+              raise @moonzip.Code(at=self.br.at())
+            }
+            for _ in 0..<repeat {
+              self.put_width(value)
+            }
           }
         }
       Stored => {
@@ -1048,67 +1048,82 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
           }
         }
       }
-      Compressed =>
-        match self.lit.read(self.br) {
-          None => raise @moonzip.Truncated(at=self.br.at())
-          Some(sym) =>
-            if sym < 256 {
-              self.push_out(sym.to_byte())
-            } else if sym == 256 {
-              if self.final_block {
-                self.stage = Done
-              } else {
-                self.stage = Header
-              }
-            } else {
-              let index = sym - 257
-              if index >= 29 {
-                raise @moonzip.Code(at=self.br.at())
-              }
-              let extra_len = match self.br.bits(length_extra[index]) {
-                None => raise @moonzip.Truncated(at=self.br.at())
-                Some(v) => v
-              }
-              let len = length_base[index] + extra_len
-              match self.dist.read(self.br) {
-                None => raise @moonzip.Truncated(at=self.br.at())
-                Some(dcode) => {
-                  if dcode >= 30 {
-                    raise @moonzip.Code(at=self.br.at())
-                  }
-                  let extra_dist = match self.br.bits(dist_extra[dcode]) {
-                    None => raise @moonzip.Truncated(at=self.br.at())
-                    Some(v) => v
-                  }
-                  let back = dist_base[dcode] + extra_dist
-                  if back > self.produced() {
-                    raise @moonzip.Distance(at=self.br.at())
-                  }
-                  // Copied a byte at a time on purpose: a run-length match
-                  // overlaps itself, and the bytes it copies are the ones this
-                  // loop is writing. What the fast path below removes is the two
-                  // per-byte branches — "is this byte in the history or the
-                  // output" and "has the limit been reached" — which the whole
-                  // match answers once. A match that reaches into the kept
-                  // history, or one that would run past the limit, still takes
-                  // the slow road.
-                  let start = self.produced() - back
-                  if (self.limit < 0 || self.produced() + len <= self.limit) &&
-                    start >= self.history.length() {
-                    let base = start - self.history.length()
-                    for k in 0..<len {
-                      self.out.push(self.out[base + k])
-                    }
-                  } else {
-                    for k in 0..<len {
-                      self.push_out(self.byte_at(start + k))
-                    }
-                  }
-                }
-              }
-            }
-        }
+      Compressed => self.codes()
       Done => ()
+    }
+  }
+}
+
+///|
+/// Decode symbols until the buffer runs short or the block ends.
+///
+/// This is one arm of `decode` lifted into its own loop, and the reason is the
+/// dispatch it saves: a literal costs one table lookup, and taking it through the
+/// stage machine means testing the stage and the buffer guard again for every byte
+/// of output. Here the guard is paid once per symbol rather than twice, and the
+/// stage is tested only when something might have changed it.
+fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
+  while self.stage is Compressed && (self.at_end || self.br.remaining() >= 8) {
+    let sym = self.lit.sym(self.br)
+    if sym < 0 {
+      raise @moonzip.Truncated(at=self.br.at())
+    }
+    if sym < 256 {
+      self.push_out(sym.to_byte())
+    } else if sym == 256 {
+      if self.final_block {
+        self.stage = Done
+      } else {
+        self.stage = Header
+      }
+    } else {
+      let index = sym - 257
+      if index >= 29 {
+        raise @moonzip.Code(at=self.br.at())
+      }
+      let extra_len = self.br.take(length_extra[index])
+      if extra_len < 0 {
+        raise @moonzip.Truncated(at=self.br.at())
+      }
+      let len = length_base[index] + extra_len
+      let dcode = self.dist.sym(self.br)
+      if dcode < 0 {
+        raise @moonzip.Truncated(at=self.br.at())
+      }
+      if dcode >= 30 {
+        raise @moonzip.Code(at=self.br.at())
+      }
+      let extra_dist = self.br.take(dist_extra[dcode])
+      if extra_dist < 0 {
+        raise @moonzip.Truncated(at=self.br.at())
+      }
+      let back = dist_base[dcode] + extra_dist
+      // One measurement of how much has been produced, used for all three
+      // questions the copy asks: is the distance in range, where does the copy
+      // start, and would it run past the limit.
+      let have = self.produced()
+      if back > have {
+        raise @moonzip.Distance(at=self.br.at())
+      }
+      // Copied a byte at a time on purpose: a run-length match overlaps
+      // itself, and the bytes it copies are the ones this loop is writing.
+      // What the fast path below removes is the two per-byte branches — "is
+      // this byte in the history or the output" and "has the limit been
+      // reached" — which the whole match answers once. A match that reaches
+      // into the kept history, or one that would run past the limit, still
+      // takes the slow road.
+      let start = have - back
+      let kept = self.history.length()
+      if (self.limit < 0 || have + len <= self.limit) && start >= kept {
+        let base = start - kept
+        for k in 0..<len {
+          self.out.push(self.out[base + k])
+        }
+      } else {
+        for k in 0..<len {
+          self.push_out(self.byte_at(start + k))
+        }
+      }
     }
   }
 }
