@@ -103,6 +103,7 @@ fn write_block(
   depth : Int32,
   lazymatch : Bool,
   split : Bool,
+  contexts : Bool,
 ) -> Unit {
   let steps = parse(data, at, span, reach, table, chain, depth, lazymatch)
   let insert_offsets = offsets_of(insert_bits, 0)
@@ -113,12 +114,16 @@ fn write_block(
   for step in steps {
     tail -= step.insert + step.copy
   }
+  let mode = if contexts { choose_mode(data, at, span) } else { 0 }
   // The command stream, in order. It is built before the histograms because the
   // split search walks it twice: once to find where the cut pays, and once to
   // count each half.
   let total_cmds = steps.length() + (if tail > 0 { 1 } else { 0 })
   let codes = FixedArray::make(if total_cmds > 0 { total_cmds } else { 1 }, 0)
   let literals = FixedArray::make(256, 0)
+  // Literals counted per context: which of the 64 sub-alphabets each one falls in,
+  // decided by the two bytes before it. Only filled when the block models them.
+  let ctx_hist = FixedArray::make(if contexts { 64 * 256 } else { 256 }, 0)
   let offsets = FixedArray::make(64, 0)
   let mut cursor = at
   let mut index = 0
@@ -129,13 +134,41 @@ fn write_block(
     let (dcode, _, _) = distance_codes.code(step.distance)
     offsets[dcode] += 1
     for i in 0..<step.insert {
-      literals[data[cursor + i].to_int()] += 1
+      let byte = data[cursor + i].to_int()
+      literals[byte] += 1
+      if contexts {
+        let before = if cursor + i > 0 {
+          data[cursor + i - 1].to_int()
+        } else {
+          0
+        }
+        let further = if cursor + i > 1 {
+          data[cursor + i - 2].to_int()
+        } else {
+          0
+        }
+        ctx_hist[context_id(mode, before, further) * 256 + byte] += 1
+      }
     }
     cursor += step.insert + step.copy
     index += 1
   }
   for i in 0..<tail {
-    literals[data[cursor + i].to_int()] += 1
+    let byte = data[cursor + i].to_int()
+    literals[byte] += 1
+    if contexts {
+      let before = if cursor + i > 0 {
+        data[cursor + i - 1].to_int()
+      } else {
+        0
+      }
+      let further = if cursor + i > 1 {
+        data[cursor + i - 2].to_int()
+      } else {
+        0
+      }
+      ctx_hist[context_id(mode, before, further) * 256 + byte] += 1
+    }
   }
   // The tail command is part of the stream like any other, so it has to be in
   // the histogram of whichever half it falls in. Leaving it out produced a stream
@@ -166,7 +199,23 @@ fn write_block(
       commands1[codes[i]] += 1
     }
   }
-  let literal_tree = Tree::of(literals, 15)
+  // Literal codes. One code for the whole alphabet is what every writer before
+  // this one did; the context model asks instead which of 64 sub-alphabets each
+  // literal falls in and groups those that want the same code, refusing the whole
+  // exercise when a second code does not pay for its description.
+  let (lit_codes, lit_map) = if contexts {
+    group_contexts(ctx_hist)
+  } else {
+    (1, FixedArray::make(64, 0))
+  }
+  let lit_trees : Array[Tree] = []
+  if lit_codes <= 1 {
+    lit_trees.push(Tree::of(literals, 15))
+  } else {
+    for g in 0..<lit_codes {
+      lit_trees.push(Tree::of(cluster_hist(ctx_hist, lit_map, g), 15))
+    }
+  }
   let command_tree0 = Tree::of(commands0, 15)
   let mut command_tree1 = command_tree0
   if split_here {
@@ -209,10 +258,27 @@ fn write_block(
   }
   w.put(0, 1) // distances: one block type
   w.put(0, 6) // NPOSTFIX 0, NDIRECT 0
-  w.put(0, 2) // context mode LSB6 for the one literal block type
-  w.put(0, 1) // one literal code everywhere
+  w.put(mode, 2) // context mode for the one literal block type
+  if lit_codes <= 1 {
+    w.put(0, 1) // one literal code everywhere
+  } else {
+    write_count(w, lit_codes - 1)
+    w.put(0, 1) // the map has no run-length escape
+    let map_hist = FixedArray::make(lit_codes, 0)
+    for c in 0..<64 {
+      map_hist[lit_map[c]] += 1
+    }
+    let map_tree = Tree::of(map_hist, 15)
+    write_prefix(w, map_tree.widths, lit_codes)
+    for c in 0..<64 {
+      map_tree.write(w, lit_map[c])
+    }
+    w.put(0, 1) // the map is not move-to-front coded
+  }
   w.put(0, 1) // one distance code everywhere
-  write_prefix(w, literal_tree.widths, 256)
+  for t in lit_trees {
+    write_prefix(w, t.widths, 256)
+  }
   write_prefix(w, command_tree0.widths, 704)
   if split_here {
     write_prefix(w, command_tree1.widths, 704)
@@ -236,7 +302,22 @@ fn write_block(
     w.put(insert_extra, insert_bits[insert_code])
     w.put(copy_extra, copy_bits[copy_code])
     for i in 0..<step.insert {
-      literal_tree.write(w, data[cursor + i].to_int())
+      let byte = data[cursor + i].to_int()
+      if lit_codes <= 1 {
+        lit_trees[0].write(w, byte)
+      } else {
+        let before = if cursor + i > 0 {
+          data[cursor + i - 1].to_int()
+        } else {
+          0
+        }
+        let further = if cursor + i > 1 {
+          data[cursor + i - 2].to_int()
+        } else {
+          0
+        }
+        lit_trees[lit_map[context_id(mode, before, further)]].write(w, byte)
+      }
     }
     cursor += step.insert
     let (code, extra, value) = distance_codes.code(step.distance)
@@ -264,40 +345,59 @@ fn write_block(
     tree.write(w, command_code(insert_code, copy_code))
     w.put(insert_extra, insert_bits[insert_code])
     for i in 0..<tail {
-      literal_tree.write(w, data[cursor + i].to_int())
+      let byte = data[cursor + i].to_int()
+      if lit_codes <= 1 {
+        lit_trees[0].write(w, byte)
+      } else {
+        let before = if cursor + i > 0 {
+          data[cursor + i - 1].to_int()
+        } else {
+          0
+        }
+        let further = if cursor + i > 1 {
+          data[cursor + i - 2].to_int()
+        } else {
+          0
+        }
+        lit_trees[lit_map[context_id(mode, before, further)]].write(w, byte)
+      }
     }
   }
 }
 
 ///|
-/// How many bits one prefix code costs: its data bits, plus what it costs to
-/// describe it. The description is charged per used symbol, which is the part
-/// that decides whether a split is worth having — two codes covering the same
-/// symbols twice cost more to send than one code covering them once.
-const TREE_DESCRIPTION_BITS : Int32 = 5
+/// The bits a code description costs, measured rather than estimated.
+///
+/// Writing the candidate to a throwaway writer and counting what it put there is
+/// both exact and cheap — a few hundred bits — and it is what makes the two
+/// searches honest. An estimate of "so much per used symbol" is wrong by enough
+/// that it accepts splits which then come out larger than the stream they were
+/// supposed to shrink.
+fn tree_bits(widths : FixedArray[Int32], alphabet : Int32) -> Int32 {
+  let w = Writer::new()
+  write_prefix(w, widths, alphabet)
+  w.count()
+}
 
 ///|
 /// The bits a histogram spends under the code built from it.
 ///
 /// A single-symbol code spends no data bits at all — the reader gets the symbol
-/// from the block type and reads nothing — so the cost has to come from the tree,
-/// not from the widths. Charging it per symbol instead is what makes a clean seam
-/// look expensive and hides every split worth taking.
-fn tree_cost(counts : FixedArray[Int32], tree : Tree) -> Int32 {
-  let mut used = 0
-  for i in 0..<counts.length() {
-    if counts[i] > 0 {
-      used += 1
-    }
-  }
+/// from the block type and reads nothing — so the whole cost is its description.
+fn tree_cost(
+  counts : FixedArray[Int32],
+  tree : Tree,
+  alphabet : Int32,
+) -> Int32 {
+  let description = tree_bits(tree.widths, alphabet)
   if tree.single {
-    return TREE_DESCRIPTION_BITS
+    return description
   }
   let mut bits = 0
   for i in 0..<counts.length() {
     bits += counts[i] * tree.widths[i]
   }
-  bits + used * TREE_DESCRIPTION_BITS
+  bits + description
 }
 
 ///|
@@ -315,7 +415,7 @@ fn best_cut(codes : FixedArray[Int32], total : Int32) -> Int32 {
     whole[codes[i]] += 1
   }
   let whole_tree = Tree::of(whole, 15)
-  let mut best_cost = tree_cost(whole, whole_tree)
+  let mut best_cost = tree_cost(whole, whole_tree, 704)
   let left = FixedArray::make(704, 0)
   let right = FixedArray::make(704, 0)
   for i in 0..<total {
@@ -334,7 +434,7 @@ fn best_cut(codes : FixedArray[Int32], total : Int32) -> Int32 {
       total - at >= stride / 2 {
       let ltree = Tree::of(left, 15)
       let rtree = Tree::of(right, 15)
-      let cost = tree_cost(left, ltree) + tree_cost(right, rtree)
+      let cost = tree_cost(left, ltree, 704) + tree_cost(right, rtree, 704)
       if cost < best_cost {
         best_cost = cost
         best = at
@@ -343,6 +443,30 @@ fn best_cut(codes : FixedArray[Int32], total : Int32) -> Int32 {
     at += 1
   }
   best
+}
+
+///|
+/// Write a count of block types or context codes, the inverse of `read_count`.
+///
+/// Zero is one bit. Everything else is a length prefix and a payload: one, then
+/// three bits naming how many payload bits follow. The payload is the value with
+/// its top bit removed, so each width covers a doubling.
+fn write_count(w : Writer, value : Int32) -> Unit {
+  if value == 0 {
+    w.put(0, 1)
+    return
+  }
+  w.put(1, 1)
+  if value == 1 {
+    w.put(0, 3)
+    return
+  }
+  let mut width = 1
+  while 1 << (width + 1) <= value {
+    width += 1
+  }
+  w.put(width, 3)
+  w.put(value - (1 << width), width)
 }
 
 ///|

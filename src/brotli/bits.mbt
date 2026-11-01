@@ -129,6 +129,13 @@ fn Writer::new() -> Writer {
 }
 
 ///|
+/// How many bits have been written, for a caller that wants to price something
+/// before it commits to writing it.
+fn Writer::count(self : Writer) -> Int32 {
+  self.out.length() * 8 + self.nbits
+}
+
+///|
 fn Writer::put(self : Writer, value : Int32, n : Int32) -> Unit {
   if n == 0 {
     return

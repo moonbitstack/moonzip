@@ -471,8 +471,9 @@ gunzip    -> 184000 bytes, matches: true</pre>
     <p class="sub" style="margin-top:22px">
       <code>brotli</code> takes a <code>quality</code> from 0 to 11 — higher is slower
       and never larger — and the row above is quality 9, the default. Quality 10 and
-      11 also split the command stream into two block types, each with its own code &mdash;<br>
-      the cut is searched, and declined when a second code would cost more than it saves.
+      11 also model literals by context and split the command stream into two block
+      types &mdash; both searched, and both declined when the extra code would cost more
+      than it saves.
     </p>
 
     <p class="sub" style="margin-top:34px">
