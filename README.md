@@ -390,18 +390,25 @@ move-to-front, the distance ring with all sixteen short codes, and every one of
 the 121 dictionary transforms. It reads streams at qualities 0 through 11 and windows 10 through 24, including
 quality 11 on English prose, which is where the dictionary does its work.
 
-**The writer is a plain LZ77 encoder**: a hash chain, one block type per stream,
-one literal code with no context modelling, and Huffman codes from exact counts.
-It does not use the dictionary and does not split blocks. `quality` (0 to 11,
-default 9) sets how far the chain is walked at each position and whether a lazy
-step is taken — more effort, never more bytes — and 0 is the single-candidate
-"fast" search LZ4 ships. It does not turn on the models above. On the body in the
-table below — 184,000 bytes of repetitive English — it reaches 682 bytes, ahead of gzip
+**The writer is a plain LZ77 encoder**: a hash chain, one literal code with no
+context modelling, and Huffman codes from exact counts. It does not use the
+dictionary. `quality` (0 to 11, default 9) sets how far the chain is walked at
+each position and whether a lazy step is taken — more effort, never more bytes —
+and 0 is the single-candidate "fast" search LZ4 ships. Quality 10 and 11 also
+split the command stream into two block types, each with its own prefix code,
+which is the one piece of brotli's block machinery this writer uses; literals and
+distances stay a single block. It does not turn on the models above. On the body
+in the table below — 184,000 bytes of repetitive English — it reaches 682 bytes, ahead of gzip
 at 1,983 and zstd at 3,042, because one long match is worth more than everything
 the fancier models add. On prose it lands where gzip does: this repository's own
 README and homepage, 61,925 bytes, come out at 19,538 from brotli and 19,506
 from its own gzip writer — within 0.2%. What it loses to context modelling it wins back with longer
 distances, and on text that is the whole trade.
+
+The split form is checked against the reference decoder, not just this one: a
+quality-11 stream over a 20,000-byte body, whose header declares two command block
+types where quality 9 declares one, decodes through `brotli 1.2.0` to the same
+bytes and comes out a few bytes smaller.
 
 Four things about this format cost real time:
 

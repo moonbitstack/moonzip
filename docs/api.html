@@ -739,11 +739,12 @@ selection and the Huffman coding of literals, which are the two parts of the
 reference encoder that are about ratio rather than about the format.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">level</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div></section>
 <section id="pkg-brotli" class="pkg"><h2><span class="num">brotli</span> <em class="spec">— RFC 7932</em><div class="pkg-grid"><div class="api-item"><h3 id="sym-brotli"><span class="ktag ktag--fn">fn</span>brotli</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> brotli(<span class="tok-t">BytesView</span>, window? : <span class="tok-k">Int32</span>, quality? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
 </pre><p>Brotli, RFC 7932.</p>
-<p>The writer is deliberately a plain one: greedy LZ77 over a single hash table,
-one meta-block per megabyte, one block type per stream, and Huffman codes
-computed from the exact symbol counts. What it does **not** do is the half of
-brotli that earns the format its ratio: literal context modelling, block
-splitting, the static dictionary, and the exhaustive parse at quality 11.</p>
+<p>The writer is a plain one: greedy LZ77 over a hash chain, one meta-block per
+megabyte, and Huffman codes computed from the exact symbol counts. <code>quality</code>
+trades time for ratio by deepening the chain search and adding a lazy step; quality
+10 and 11 also split the command stream into two block types, each with its own
+code. What it does **not** do is the rest of what earns brotli its ratio: literal
+context modelling and the static dictionary.</p>
 <p>That is a choice, not a gap. Those four are search problems over the same
 format the reader already implements, and a writer that used them would need
 the reference encoder's 30,000 lines to be worth the difference. This one is

@@ -102,43 +102,85 @@ fn write_block(
   chain : FixedArray[Int32],
   depth : Int32,
   lazymatch : Bool,
+  split : Bool,
 ) -> Unit {
   let steps = parse(data, at, span, reach, table, chain, depth, lazymatch)
-  let literals = FixedArray::make(256, 0)
-  let commands = FixedArray::make(704, 0)
-  let offsets = FixedArray::make(64, 0)
   let insert_offsets = offsets_of(insert_bits, 0)
   let copy_offsets = offsets_of(copy_bits, 2)
   let distance_codes = distances(0, 0, 64)
+  // How much of the block is a trailing literal run, which is its own command.
   let mut tail = span
+  for step in steps {
+    tail -= step.insert + step.copy
+  }
+  // Block splitting: the command stream is cut in two, each half carrying its own
+  // prefix code. Where the cut falls is the only choice the format leaves open.
+  let total_cmds = steps.length() + (if tail > 0 { 1 } else { 0 })
+  let split_here = split && total_cmds >= 2
+  let cut = if split_here { total_cmds / 2 } else { total_cmds }
+  let literals = FixedArray::make(256, 0)
+  let commands0 = FixedArray::make(704, 0)
+  let commands1 = FixedArray::make(704, 0)
+  let offsets = FixedArray::make(64, 0)
   let mut cursor = at
+  let mut index = 0
   for step in steps {
     let (insert_code, _) = length_code(insert_offsets, step.insert)
     let (copy_code, _) = length_code(copy_offsets, step.copy)
-    commands[command_code(insert_code, copy_code)] += 1
-    let (code, _, _) = distance_codes.code(step.distance)
-    offsets[code] += 1
+    let code = command_code(insert_code, copy_code)
+    if index < cut {
+      commands0[code] += 1
+    } else {
+      commands1[code] += 1
+    }
+    let (dcode, _, _) = distance_codes.code(step.distance)
+    offsets[dcode] += 1
     for i in 0..<step.insert {
       literals[data[cursor + i].to_int()] += 1
     }
     cursor += step.insert + step.copy
-    tail -= step.insert + step.copy
+    index += 1
   }
   for i in 0..<tail {
     literals[data[cursor + i].to_int()] += 1
   }
   // The tail command is part of the stream like any other, so it has to be in
-  // the histogram. Leaving it out produced a stream whose command tree held a
-  // single symbol that was not the one the tail used — a bug that only appears
-  // when a block ends on a literal run, which is to say every small input.
+  // the histogram of whichever half it falls in. Leaving it out produced a stream
+  // whose command tree held a single symbol that was not the one the tail used —
+  // a bug that only appears when a block ends on a literal run, which is to say
+  // every small input.
   if tail > 0 {
     let (insert_code, _) = length_code(insert_offsets, tail)
     let (copy_code, _) = length_code(copy_offsets, 2)
-    commands[command_code(insert_code, copy_code)] += 1
+    let code = command_code(insert_code, copy_code)
+    if index < cut {
+      commands0[code] += 1
+    } else {
+      commands1[code] += 1
+    }
   }
   let literal_tree = Tree::of(literals, 15)
-  let command_tree = Tree::of(commands, 15)
+  let command_tree0 = Tree::of(commands0, 15)
+  let mut command_tree1 = command_tree0
+  if split_here {
+    command_tree1 = Tree::of(commands1, 15)
+  }
   let distance_tree = Tree::of(offsets, 15)
+  // The two small trees a split needs: one over block types (the two explicit
+  // ones, and the "recent" spellings the format also allows), and one over the
+  // length ranges the format codes. A single-symbol size tree costs no bits for
+  // its code, which is what `emit_block_len` guards.
+  let type_widths = FixedArray::make(4, 0)
+  type_widths[2] = 1
+  type_widths[3] = 1
+  let type_codes = canonical_codes(type_widths, 4)
+  let (c0, b0, e0) = block_len_code(cut)
+  let (c1, b1, e1) = block_len_code(total_cmds - cut)
+  let size_widths = FixedArray::make(26, 0)
+  size_widths[c0] = 1
+  size_widths[c1] = 1
+  let size_single = c0 == c1
+  let size_codes = canonical_codes(size_widths, 26)
 
   w.put(0, 1) // not the last meta-block
   let nibbles = nibble_count(span)
@@ -148,21 +190,42 @@ fn write_block(
     w.put((stored >> (i * 4)) & 0xF, 4)
   }
   w.put(0, 1) // compressed, not stored
-  for _ in 0..<3 {
-    w.put(0, 1) // one block type per stream
+  w.put(0, 1) // literals: one block type
+  if split_here {
+    w.put(1, 1) // commands: two block types
+    w.put(0, 3)
+    write_prefix(w, type_widths, 4)
+    write_prefix(w, size_widths, 26)
+    emit_block_len(w, size_widths, size_codes, size_single, c0, b0, e0)
+  } else {
+    w.put(0, 1) // commands: one block type
   }
+  w.put(0, 1) // distances: one block type
   w.put(0, 6) // NPOSTFIX 0, NDIRECT 0
   w.put(0, 2) // context mode LSB6 for the one literal block type
   w.put(0, 1) // one literal code everywhere
   w.put(0, 1) // one distance code everywhere
   write_prefix(w, literal_tree.widths, 256)
-  write_prefix(w, command_tree.widths, 704)
+  write_prefix(w, command_tree0.widths, 704)
+  if split_here {
+    write_prefix(w, command_tree1.widths, 704)
+  }
   write_prefix(w, distance_tree.widths, 64)
   cursor = at
+  index = 0
   for step in steps {
+    if split_here && index == cut {
+      write_code(w, type_widths, type_codes, 3)
+      emit_block_len(w, size_widths, size_codes, size_single, c1, b1, e1)
+    }
     let (insert_code, insert_extra) = length_code(insert_offsets, step.insert)
     let (copy_code, copy_extra) = length_code(copy_offsets, step.copy)
-    command_tree.write(w, command_code(insert_code, copy_code))
+    let tree = if split_here && index >= cut {
+      command_tree1
+    } else {
+      command_tree0
+    }
+    tree.write(w, command_code(insert_code, copy_code))
     w.put(insert_extra, insert_bits[insert_code])
     w.put(copy_extra, copy_bits[copy_code])
     for i in 0..<step.insert {
@@ -173,20 +236,61 @@ fn write_block(
     distance_tree.write(w, code)
     w.put(value, extra)
     cursor += step.copy
+    index += 1
   }
   // The tail: literals up to the end of the meta-block, and a copy that is never
   // performed because the length runs out first. When there is no tail the last
   // real command already finished the block, and writing this command anyway
   // would leave its symbol in the stream for the *next* meta-block to read.
   if tail > 0 {
+    if split_here && steps.length() == cut {
+      write_code(w, type_widths, type_codes, 3)
+      emit_block_len(w, size_widths, size_codes, size_single, c1, b1, e1)
+    }
     let (insert_code, insert_extra) = length_code(insert_offsets, tail)
     let (copy_code, _) = length_code(copy_offsets, 2)
-    command_tree.write(w, command_code(insert_code, copy_code))
+    let tree = if split_here && steps.length() >= cut {
+      command_tree1
+    } else {
+      command_tree0
+    }
+    tree.write(w, command_code(insert_code, copy_code))
     w.put(insert_extra, insert_bits[insert_code])
     for i in 0..<tail {
       literal_tree.write(w, data[cursor + i].to_int())
     }
   }
+}
+
+///|
+/// The length-range code and extra bits for a block length, the inverse of what
+/// the reader does with `block_len_offset` and `block_len_bits`.
+fn block_len_code(len : Int32) -> (Int32, Int32, Int32) {
+  for c in 0..<26 {
+    let lo = block_len_offset[c]
+    if len >= lo && len < lo + (1 << block_len_bits[c]) {
+      return (c, block_len_bits[c], len - lo)
+    }
+  }
+  (25, block_len_bits[25], len - block_len_offset[25])
+}
+
+///|
+/// Write a block length under a size tree that may be a single symbol, in which
+/// case the reader assigns it width zero and the code itself costs no bits.
+fn emit_block_len(
+  w : Writer,
+  widths : FixedArray[Int32],
+  codes : FixedArray[Int32],
+  single : Bool,
+  c : Int32,
+  bits : Int32,
+  extra : Int32,
+) -> Unit {
+  if !single {
+    write_code(w, widths, codes, c)
+  }
+  w.put(extra, bits)
 }
 
 ///|

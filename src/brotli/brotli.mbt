@@ -81,29 +81,29 @@ pub fn brotli(
   window~ : Int32 = 22,
   quality~ : Int32 = 9,
 ) -> Bytes {
-  let (depth, lazymatch) = effort(quality)
-  compress(data, window, 1 << 24, depth~, lazymatch~)
+  let (depth, lazymatch, split) = effort(quality)
+  compress(data, window, 1 << 24, depth~, lazymatch~, split~)
 }
 
 ///|
 /// The search effort a quality names: the hash-chain depth and whether a lazy
 /// step is taken. Quality 9 is the value the one-shot call has always used, so
 /// the default output is unchanged; 0 and 11 are the fast and exhaustive ends.
-fn effort(quality : Int32) -> (Int32, Bool) {
+fn effort(quality : Int32) -> (Int32, Bool, Bool) {
   let q = if quality < 0 { 0 } else if quality > 11 { 11 } else { quality }
   match q {
-    0 => (1, false)
-    1 => (2, false)
-    2 => (4, true)
-    3 => (8, true)
-    4 => (16, true)
-    5 => (32, true)
-    6 => (64, true)
-    7 => (128, true)
-    8 => (192, true)
-    9 => (256, true)
-    10 => (512, true)
-    _ => (1024, true)
+    0 => (1, false, false)
+    1 => (2, false, false)
+    2 => (4, true, false)
+    3 => (8, true, false)
+    4 => (16, true, false)
+    5 => (32, true, false)
+    6 => (64, true, false)
+    7 => (128, true, false)
+    8 => (192, true, false)
+    9 => (256, true, false)
+    10 => (512, true, true)
+    _ => (1024, true, true)
   }
 }
 
@@ -120,6 +120,7 @@ fn compress(
   block : Int32,
   depth~ : Int32 = 256,
   lazymatch~ : Bool = true,
+  split~ : Bool = false,
 ) -> Bytes {
   let size = if window < 10 { 10 } else if window > 24 { 24 } else { window }
   let w = Writer::new()
@@ -143,6 +144,7 @@ fn compress(
       chain,
       depth,
       lazymatch,
+      split,
     )
     at += span
   }
