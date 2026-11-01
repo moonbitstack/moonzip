@@ -13,13 +13,23 @@ pub fn aes_encrypt(BytesView, String, String, Int64, Int64, strength? : Int32) -
 
 pub fn entry(BytesView, String, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Entry? raise @moonzip.Refused
 
+pub fn join(ArrayView[Bytes]) -> Bytes
+
 pub let level : Int32
 
 pub fn names(BytesView) -> Array[String] raise @moonzip.Refused
 
+pub fn split(BytesView, Int32) -> Array[Bytes]
+
 pub fn unzip(BytesView, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Array[Entry] raise @moonzip.Refused
 
+pub fn unzip_split(ArrayView[Bytes], limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Array[Entry] raise @moonzip.Refused
+
+pub fn volume_names(String, Int32) -> Array[String]
+
 pub fn zip(ArrayView[Entry], level? : Int32, codecs? : ArrayView[&Codec], zip64? : Bool, descriptor? : Bool, password? : String, aes? : Int32, ae? : Int32) -> Bytes
+
+pub fn zip_split(ArrayView[Entry], Int32, level? : Int32, codecs? : ArrayView[&Codec], zip64? : Bool, descriptor? : Bool, password? : String, aes? : Int32, ae? : Int32) -> Array[Bytes]
 
 pub fn zipcrypt_decrypt(BytesView, String, Byte) -> Bytes raise @moonzip.Refused
 
