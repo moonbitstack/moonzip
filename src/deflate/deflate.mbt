@@ -785,6 +785,11 @@ pub fn Reader::push(
 /// the buffer — and the container is the only thing that knows what to do with
 /// it. `gunzip` takes its eight-byte trailer from here.
 pub fn Reader::rest(self : Reader) -> Bytes {
+  // A look-ahead may have pulled whole bytes into the accumulator, and a trailer
+  // is exactly the kind of thing that lives there: the reader stopped the moment
+  // the last block ended, without consuming them. Handing them back first is what
+  // makes this answer complete.
+  self.br.align()
   let out : Array[Byte] = []
   for i in self.br.pos..<self.br.buf.length() {
     out.push(self.br.buf[i])
@@ -1081,10 +1086,23 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
                   }
                   // Copied a byte at a time on purpose: a run-length match
                   // overlaps itself, and the bytes it copies are the ones this
-                  // loop is writing.
+                  // loop is writing. What the fast path below removes is the two
+                  // per-byte branches — "is this byte in the history or the
+                  // output" and "has the limit been reached" — which the whole
+                  // match answers once. A match that reaches into the kept
+                  // history, or one that would run past the limit, still takes
+                  // the slow road.
                   let start = self.produced() - back
-                  for k in 0..<len {
-                    self.push_out(self.byte_at(start + k))
+                  if (self.limit < 0 || self.produced() + len <= self.limit) &&
+                    start >= self.history.length() {
+                    let base = start - self.history.length()
+                    for k in 0..<len {
+                      self.out.push(self.out[base + k])
+                    }
+                  } else {
+                    for k in 0..<len {
+                      self.push_out(self.byte_at(start + k))
+                    }
                   }
                 }
               }

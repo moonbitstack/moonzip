@@ -151,9 +151,18 @@ fn BitReader::at(self : BitReader) -> Int32 {
 
 ///|
 /// Drop to a byte boundary, which a stored block requires and the rest of the
-/// format never mentions. The bits skipped are the tail of a byte already
-/// pulled, so `pos` does not move.
+/// format never mentions.
+///
+/// Only the partial byte is padding. A look-ahead may have pulled whole bytes into
+/// the accumulator, and those are real data that the stored block about to follow
+/// reads straight out of the buffer — so they are handed back by rewinding `pos`,
+/// which is safe because nothing truncates the buffer except `push`, and that only
+/// drops what is already behind `pos`.
 fn BitReader::align(self : BitReader) -> Unit {
+  let whole = self.held / 8
+  if whole > 0 {
+    self.pos -= whole
+  }
   self.acc = 0
   self.held = 0
 }

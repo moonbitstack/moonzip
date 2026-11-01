@@ -427,3 +427,28 @@ test "compression compresses" {
   let noise = sample(4)
   assert_true(@deflate.deflate(noise[:]).length() < noise.length() * 2)
 }
+
+///|
+/// A compressed block followed by a stored one, which is the transition that a
+/// Huffman look-ahead can break.
+///
+/// A look-ahead pulls bytes into the accumulator before it knows how many it will
+/// use. A stored block then aligns, and an `align` that merely empties the
+/// accumulator throws those bytes away — the stored block's payload loses its
+/// first byte and everything after it decodes to rubbish. Text that compresses
+/// followed by bytes that do not is the shape that puts the two block kinds next
+/// to each other, so it is the shape worth keeping a test for.
+test "a stored block after a compressed one reads back" {
+  let out : Array[Byte] = []
+  for b in sample(3) {
+    out.push(b)
+  }
+  let mut state : UInt32 = 12345U
+  for _ in 0..<4000 {
+    state = state * 1103515245U + 12345U
+    out.push(((state >> 16) & 0xFF).to_byte())
+  }
+  let body = Bytes::from_array(out)
+  let packed = @deflate.deflate(body[:])
+  assert_eq(@deflate.inflate(packed[:]), body)
+}

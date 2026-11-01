@@ -522,23 +522,31 @@ range rather than a constant, so read them as orders of magnitude.
 
 | Codec | Write MB/s | Read MB/s |
 |:--|--:|--:|
-| `deflate` | 9 | 50 |
-| `gzip` | 8 | 43 |
-| `zlib` | 9 | 49 |
-| `zstd` | 20 | 52 |
-| `brotli` (quality 9) | 1.4 | 54 |
+| `deflate` | 10 | 74 |
+| `gzip` | 9 | 62 |
+| `zlib` | 9 | 68 |
+| `zstd` | 21 | 52 |
+| `brotli` (quality 9) | 1.5 | 55 |
 
 The same body through C zlib on the same machine — `zlib.compress(_, 6)` from
-Python — writes at about 18 MB/s and reads at 200–350 MB/s depending on how busy
+Python — writes at about 18 MB/s and reads at 200–365 MB/s depending on how busy
 the machine is. The deflate writer is therefore within a factor of two of zlib.
-The inflate reader is a seventh to a quarter of zlib's decode rate: it brushes the
-quarter line this library set for itself rather than clearing it, and the reason is
-structural, not a missed constant. The Huffman decoder walks a code one bit at a
-time; the table-driven decoder that would close the gap has to look ahead across
-byte boundaries, which this reader's stored-block alignment does not allow — a
-prototype broke the compressed-to-stored transition and was not shipped. Saying so
-is better than a number taken on a body of one repeated sentence, where the rate
-measures a memcpy more than a decoder.
+The reader is a fifth of zlib's decode rate when zlib measures 365, and nearer a
+third when it measures 200: about half again as fast as it was, and still short of
+the quarter this library set for itself.
+
+Three things earned that, and the third is the one that had been tried and
+abandoned. The Huffman decoder now looks nine bits ahead and names most codes with
+a single table lookup instead of walking them a bit at a time. A match is copied
+with its two per-byte branches — "is this byte in the kept history or the output",
+"has the limit been reached" — hoisted out of the loop, since the whole match
+answers both once. And the look-ahead itself, which broke the compressed-to-stored
+transition the first time it was attempted: pulling bytes into the accumulator is
+fine until `align` throws that accumulator away and takes whole bytes of the stored
+block's payload with it. The mistake was to conclude that the reader cannot look
+ahead. It is that `align` has to hand those bytes back by rewinding the read
+position — and so does `rest`, which returns a container's trailer, because a
+trailer is exactly what a look-ahead leaves in the accumulator.
 
 `brotli`'s write rate is the price of its search: quality 9 walks up to 256 chain
 candidates at each position. `quality=1` is several times faster for a few per cent

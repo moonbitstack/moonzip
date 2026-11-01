@@ -2,12 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 ///|
+/// How many bits the look-ahead covers.
+///
+/// Nine rather than eight because DEFLATE's fixed literal code tops out at nine,
+/// so a fixed block decodes every symbol in one lookup, and a dynamic code built
+/// from real text rarely has many symbols past nine either. The table is built
+/// once per code, so the cost is `FAST_SIZE` writes per block, not per symbol.
+const FAST_BITS : Int32 = 9
+
+///|
+const FAST_SIZE : Int32 = 512
+
+///|
 /// A canonical Huffman code, held as the count of codes at each width and the
 /// symbols in code order — which is all a bit-at-a-time decoder needs, and a
 /// great deal less than a table (RFC 1951 §3.2.2).
 priv struct Huffman {
   counts : FixedArray[Int32]
   symbols : FixedArray[Int32]
+  /// Every `FAST_BITS`-bit look-ahead, and the symbol it names when a code fits
+  /// inside that many bits. An entry is `symbol << 4 | width`, or -1 when the code
+  /// is longer and the slow path has to walk it.
+  fast : FixedArray[Int32]
 }
 
 ///|
@@ -30,7 +46,47 @@ fn Huffman::of(lengths : FixedArray[Int32], n : Int32) -> Huffman {
       offsets[lengths[i]] += 1
     }
   }
-  { counts, symbols, }
+  { counts, symbols, fast: fast_table(counts, symbols), }
+}
+
+///|
+/// The eight-bit look-ahead table.
+///
+/// A code goes out most significant bit first while everything else in the stream
+/// goes out least significant first, so the value the reader sees for a code is
+/// its bits reversed. Filling the table means writing that reversed value into
+/// every slot whose low bits agree with it, and a slot no code of eight bits or
+/// fewer covers keeps -1 — which is also the answer for a truncated stream, since
+/// the caller falls back to the bit-at-a-time walk and gets `None` there.
+fn fast_table(
+  counts : FixedArray[Int32],
+  symbols : FixedArray[Int32],
+) -> FixedArray[Int32] {
+  let table = FixedArray::make(FAST_SIZE, -1)
+  let mut code = 0
+  let mut index = 0
+  for width in 1..<16 {
+    let count = counts[width]
+    if width <= FAST_BITS && count > 0 {
+      let step = 1 << width
+      for k in 0..<count {
+        let canonical = code + k
+        let mut flipped = 0
+        for i in 0..<width {
+          flipped = (flipped << 1) | ((canonical >> i) & 1)
+        }
+        let entry = (symbols[index + k] << 4) | width
+        let mut slot = flipped
+        while slot < FAST_SIZE {
+          table[slot] = entry
+          slot += step
+        }
+      }
+    }
+    index += count
+    code = (code + count) << 1
+  }
+  table
 }
 
 ///|
@@ -45,6 +101,27 @@ fn Huffman::of(lengths : FixedArray[Int32], n : Int32) -> Huffman {
 /// with enough bytes buffered to finish the symbol, so in practice `None` means
 /// the stream ended early — which the caller turns into the error it is.
 fn Huffman::read(self : Huffman, br : BitReader) -> Int32? {
+  // The look-ahead, inlined: pull until the accumulator holds enough, look at the
+  // low bits, and consume exactly the width the entry names. Nothing is taken
+  // before the width is known, so the rest of the look-ahead stays where the next
+  // symbol expects it and a stored block's align still sees only a partial byte.
+  while br.held < FAST_BITS {
+    if br.pos >= br.buf.length() {
+      break
+    }
+    br.acc = br.acc | (br.buf[br.pos].to_int() << br.held)
+    br.pos += 1
+    br.held += 8
+  }
+  if br.held >= FAST_BITS {
+    let entry = self.fast[br.acc & (FAST_SIZE - 1)]
+    if entry >= 0 {
+      let width = entry & 0xF
+      br.acc = br.acc >> width
+      br.held -= width
+      return Some(entry >> 4)
+    }
+  }
   let mut code = 0
   let mut first = 0
   let mut index = 0
