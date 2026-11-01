@@ -149,32 +149,41 @@ test "context modelling never costs bytes" {
 }
 
 ///|
-/// The affix table holds every transform whose word can be found by the index:
-/// plain, capitalised, prefixed or not. What it must not hold is one of the kinds
-/// that drop bytes, because there the word is longer than the text it has to match.
+/// The affix table holds every transform the index can address: plain, capitalised,
+/// shouted, prefixed or not, and the nine that drop the word's tail. What it must
+/// not hold is the ones that drop the word's *head*, because there the bytes the
+/// index is keyed on are the bytes the text does not contain.
 test "the affix table holds the searchable transforms" {
   let affixes = affix_table()
-  assert_eq(affixes.length(), 84)
+  assert_eq(affixes.length(), 103)
   let mut prefixed = 0
+  let mut shouted = 0
   let mut plain_capital = false
   let mut word_and_space = false
   for affix in affixes {
     let kind = transforms[affix.id * 3 + 1]
-    assert_true(kind == 0 || kind == TRANSFORM_UPPERCASE_KIND)
+    assert_true(kind != 12 && kind != 20)
+    assert_true(kind <= 11)
     if affix.prefix.length() > 0 {
       prefixed += 1
     }
-    if affix.capital && affix.prefix.length() == 0 && affix.suffix.length() == 0 {
+    if affix.mode == CASE_ALL {
+      shouted += 1
+    }
+    if affix.mode == CASE_FIRST &&
+      affix.prefix.length() == 0 &&
+      affix.suffix.length() == 0 {
       plain_capital = true
     }
-    if !affix.capital &&
+    if affix.mode == CASE_PLAIN &&
       affix.prefix.length() == 0 &&
       affix.suffix.length() == 1 &&
       affix.suffix[0] == b' ' {
       word_and_space = true
     }
   }
-  assert_eq(prefixed, 28)
+  assert_eq(prefixed, 35)
+  assert_eq(shouted, 19)
   assert_true(plain_capital)
   assert_true(word_and_space)
 }
@@ -299,4 +308,40 @@ test "a prefixed transform is found past its prefix" {
   assert_eq(taken, 6)
   let prefix = transforms[transform * 3]
   assert_true(prefix_suffix[prefix_suffix_map[prefix]].to_int() > 0)
+}
+
+///|
+/// A shouted word is the same entry in upper case, which needs its own probe: the
+/// hash is taken over the text's bytes, and every one of them differs from the
+/// word's.
+test "a shouted word finds its lowercase entry" {
+  let index = DictIndex::build()
+  let text = b"xxTIME"
+  let (word, taken, _, transform) = index.find(text[:], 2, text.length())
+  assert_eq(word, 4)
+  assert_eq(taken, 4)
+  assert_eq(transforms[transform * 3 + 1], TRANSFORM_UPPERCASE_ALL_KIND)
+}
+
+///|
+/// A body of shouted words is smaller with the dictionary than without it: their
+/// entries are lowercase, and the uppercase-all transform is what bridges the two.
+test "shouted words compress and read back" {
+  let words : Array[Bytes] = [b"TIME ", b"PEOPLE ", b"WORLD ", b"WORK "]
+  let out : Array[Byte] = []
+  for i in 0..<80 {
+    for b in words[i % 4] {
+      out.push(b)
+    }
+    for ch in i.to_string() {
+      out.push((ch.to_int() & 0xFF).to_byte())
+    }
+    out.push(b' ')
+  }
+  let body = Bytes::from_array(out)
+  let plain = compress(body[:], 22, 1 << 24, depth=1024)
+  let words_out = compress(body[:], 22, 1 << 24, depth=1024, dictionary=true)
+  assert_eq(unbrotli(plain[:]), body)
+  assert_eq(unbrotli(words_out[:]), body)
+  assert_true(words_out.length() < plain.length())
 }

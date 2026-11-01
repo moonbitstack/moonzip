@@ -751,6 +751,9 @@ fn parse(
     match words {
       Some(index) => {
         let (word_len, taken, slot, transform) = index.find(data, cursor, end)
+        // A transform that drops the word's tail produces fewer bytes than the word
+        // it names, so its distance is spread over less text. It has to beat the
+        // match finder by a margin to be worth the address.
         if taken > length {
           steps.push({
             insert: cursor - literal_start,

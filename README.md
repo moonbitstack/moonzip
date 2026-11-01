@@ -416,18 +416,19 @@ because one long match is worth more than everything the fancier models add.
   — instead of their letters. The writer indexes the 13,504 words by their first
   four bytes and probes each position twice: once as spelled, once with the first
   letter lowercased, so a sentence-initial `Time` costs the same code as `time`.
-  It then reaches 84 of the 121 transforms. With no prefix the word starts at the
+  It then reaches 103 of the 121 transforms. With no prefix the word starts at the
   position being searched, so that index finds it and the work is comparing the
   suffix after it; with a prefix the text starts with those bytes and the word
   starts just past them, so the same index works one probe further in. That covers
   `word + " "`, `word + "."`, `" " + word`, `" the " + word + " of "` and the
-  capitalised spelling of each — the punctuation on both sides of most words in
-  prose. The 37 left out are the kinds that drop bytes from one end, where the word
-  is longer than the text it has to match and the entry the index finds is not the
-  thing being compared. An affix is not part of the copy length either: the command
-  carries the *word's* length, which selects the bucket, and the transform decides
-  how much comes out, so `time` with the space-suffix transform is a copy of four
-  bytes that produces five.
+  capitalised and shouted spellings of each. Eight are out of reach because they
+  drop the word's *opening* bytes, which are exactly what the text does not
+  contain. Ten more — the ones that drop the word's tail — are reachable and
+  declined: a truncated word covers less text for the same far distance, and on
+  this file they cost 260 bytes at every minimum length tried. An affix is not part
+  of the copy length either: the command carries the *word's* length, which selects
+  the bucket, and the transform decides how much comes out, so `time` with the
+  space-suffix transform is a copy of four bytes that produces five.
 
 Every one of those choices **prices what it is choosing instead of estimating it**:
 the candidate code is written to a throwaway bit stream and counted. An estimate of
@@ -447,11 +448,11 @@ the shape the feature exists for, and the reason the decision is priced rather t
 assumed either way.
 
 On this repository's own documentation — README, homepage and guide, about 102 KB
-— quality 9 gives 28,901 bytes and quality 11 gives 26,598, which is 8.0% smaller.
+— quality 9 gives 28,944 bytes and quality 11 gives 26,636, which is 8.0% smaller.
 The literal context model is 541 of those bytes, the stream splits 64, and the
-dictionary 1,698 — by far the largest, because prose is mostly words the dictionary
-already has. For scale, the reference encoder reaches 26,443 on the same bytes at
-quality 9 and 23,938 at quality 11, so this writer is 9% behind at nine and 11%
+dictionary 1,708 — by far the largest, because prose is mostly words the dictionary
+already has. For scale, the reference encoder reaches 26,474 on the same bytes at
+quality 9 and 23,982 at quality 11, so this writer is 9% behind at nine and 11%
 behind at eleven.
 
 Every new form is checked against the reference decoder, not just this one: a
