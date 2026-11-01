@@ -113,26 +113,19 @@ fn write_block(
   for step in steps {
     tail -= step.insert + step.copy
   }
-  // Block splitting: the command stream is cut in two, each half carrying its own
-  // prefix code. Where the cut falls is the only choice the format leaves open.
+  // The command stream, in order. It is built before the histograms because the
+  // split search walks it twice: once to find where the cut pays, and once to
+  // count each half.
   let total_cmds = steps.length() + (if tail > 0 { 1 } else { 0 })
-  let split_here = split && total_cmds >= 2
-  let cut = if split_here { total_cmds / 2 } else { total_cmds }
+  let codes = FixedArray::make(if total_cmds > 0 { total_cmds } else { 1 }, 0)
   let literals = FixedArray::make(256, 0)
-  let commands0 = FixedArray::make(704, 0)
-  let commands1 = FixedArray::make(704, 0)
   let offsets = FixedArray::make(64, 0)
   let mut cursor = at
   let mut index = 0
   for step in steps {
     let (insert_code, _) = length_code(insert_offsets, step.insert)
     let (copy_code, _) = length_code(copy_offsets, step.copy)
-    let code = command_code(insert_code, copy_code)
-    if index < cut {
-      commands0[code] += 1
-    } else {
-      commands1[code] += 1
-    }
+    codes[index] = command_code(insert_code, copy_code)
     let (dcode, _, _) = distance_codes.code(step.distance)
     offsets[dcode] += 1
     for i in 0..<step.insert {
@@ -152,11 +145,25 @@ fn write_block(
   if tail > 0 {
     let (insert_code, _) = length_code(insert_offsets, tail)
     let (copy_code, _) = length_code(copy_offsets, 2)
-    let code = command_code(insert_code, copy_code)
-    if index < cut {
-      commands0[code] += 1
+    codes[index] = command_code(insert_code, copy_code)
+  }
+  // Block splitting: the command stream may be cut in two, each half carrying its
+  // own prefix code. Where the cut falls is the only choice the format leaves
+  // open, and it is a real choice — a cut that saves data bits but pays for a
+  // second tree is a loss, so the search weighs both.
+  let cut = if split && total_cmds >= 2 {
+    best_cut(codes, total_cmds)
+  } else {
+    total_cmds
+  }
+  let split_here = cut < total_cmds
+  let commands0 = FixedArray::make(704, 0)
+  let commands1 = FixedArray::make(704, 0)
+  for i in 0..<total_cmds {
+    if i < cut {
+      commands0[codes[i]] += 1
     } else {
-      commands1[code] += 1
+      commands1[codes[i]] += 1
     }
   }
   let literal_tree = Tree::of(literals, 15)
@@ -260,6 +267,82 @@ fn write_block(
       literal_tree.write(w, data[cursor + i].to_int())
     }
   }
+}
+
+///|
+/// How many bits one prefix code costs: its data bits, plus what it costs to
+/// describe it. The description is charged per used symbol, which is the part
+/// that decides whether a split is worth having — two codes covering the same
+/// symbols twice cost more to send than one code covering them once.
+const TREE_DESCRIPTION_BITS : Int32 = 5
+
+///|
+/// The bits a histogram spends under the code built from it.
+///
+/// A single-symbol code spends no data bits at all — the reader gets the symbol
+/// from the block type and reads nothing — so the cost has to come from the tree,
+/// not from the widths. Charging it per symbol instead is what makes a clean seam
+/// look expensive and hides every split worth taking.
+fn tree_cost(counts : FixedArray[Int32], tree : Tree) -> Int32 {
+  let mut used = 0
+  for i in 0..<counts.length() {
+    if counts[i] > 0 {
+      used += 1
+    }
+  }
+  if tree.single {
+    return TREE_DESCRIPTION_BITS
+  }
+  let mut bits = 0
+  for i in 0..<counts.length() {
+    bits += counts[i] * tree.widths[i]
+  }
+  bits + used * TREE_DESCRIPTION_BITS
+}
+
+///|
+/// Where to cut the command stream, or its length when no cut pays.
+///
+/// A split only earns its second tree when the two halves are different kinds of
+/// command stream — a run of small copies followed by a run of long ones, say. So
+/// this compares a single code against sampled cuts and keeps the best only if it
+/// beats not splitting at all. The sample is coarse on purpose: the cost curve is
+/// smooth, and building two codes at every one of a hundred thousand positions
+/// would make quality eleven quadratic in the block size.
+fn best_cut(codes : FixedArray[Int32], total : Int32) -> Int32 {
+  let whole = FixedArray::make(704, 0)
+  for i in 0..<total {
+    whole[codes[i]] += 1
+  }
+  let whole_tree = Tree::of(whole, 15)
+  let mut best_cost = tree_cost(whole, whole_tree)
+  let left = FixedArray::make(704, 0)
+  let right = FixedArray::make(704, 0)
+  for i in 0..<total {
+    right[codes[i]] += 1
+  }
+  let stride = if total > 64 { total / 64 } else { 1 }
+  let mut best = total
+  let mut at = 1
+  while at < total {
+    let moved = codes[at - 1]
+    left[moved] += 1
+    right[moved] -= 1
+    // Nothing useful lives near either end: a cut there is one code plus a stub.
+    if (at % stride == 0 || at == total - 1) &&
+      at >= stride / 2 &&
+      total - at >= stride / 2 {
+      let ltree = Tree::of(left, 15)
+      let rtree = Tree::of(right, 15)
+      let cost = tree_cost(left, ltree) + tree_cost(right, rtree)
+      if cost < best_cost {
+        best_cost = cost
+        best = at
+      }
+    }
+    at += 1
+  }
+  best
 }
 
 ///|

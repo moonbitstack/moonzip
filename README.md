@@ -405,6 +405,14 @@ README and homepage, 61,925 bytes, come out at 19,538 from brotli and 19,506
 from its own gzip writer — within 0.2%. What it loses to context modelling it wins back with longer
 distances, and on text that is the whole trade.
 
+Where the cut falls is searched, not guessed. A second prefix code is only worth
+its description when the two halves of the stream really are different, so the
+writer prices a single code against sixty-four candidate cuts — data bits plus a
+per-symbol charge for sending the code — and declines to split when nothing beats
+one code. On three 60–120 KB bodies the split is worth 30, 30 and 61 bytes, about
+0.4%, which is what a second command code is worth when nothing else about the
+stream changes: the ratio brotli is famous for is in the literal model, not here.
+
 The split form is checked against the reference decoder, not just this one: a
 quality-11 stream over a 20,000-byte body, whose header declares two command block
 types where quality 9 declares one, decodes through `brotli 1.2.0` to the same
