@@ -1,8 +1,8 @@
 # moonzip
 
 Compression for MoonBit. Thirteen formats, one per package, each with the
-interface its own specification argues for — and no dependency beyond
-`moonbase`.
+interface its own specification argues for — and no dependency beyond `moonbase`
+and `mooncrypt` (the checksums, and the AES primitives behind ZIP's encryption).
 
 ```moonbit
 let small = @gzip.gzip(body[:])
@@ -17,7 +17,7 @@ let members = @zip.unzip(archive[:])
 | `deflate` | DEFLATE, both directions, all three block types | RFC 1951 |
 | `gzip` | The gzip container, with CRC-32 | RFC 1952 |
 | `zlib` | The zlib container, with Adler-32 | RFC 1950 |
-| `zip` | The ZIP archive, with Zip64, descriptors and ZipCrypto | APPNOTE 6.3 |
+| `zip` | The ZIP archive, with Zip64, descriptors, ZipCrypto, WinZip AES and volumes | APPNOTE 6.3 |
 | `tar` | ustar and pax, and `.tar.gz` on top | POSIX pax |
 | `lz4` | The block and frame formats, with xxHash-32 | lz4 block, frame |
 | `snappy` | The block and framing formats, with CRC-32C | Snappy |
@@ -33,6 +33,7 @@ Run any of them with `moon run src/examples/<name>`:
 - `minimal` — the smallest program: compress and read back one buffer.
 - `tour` — the surface in one go: deflate, gzip, zlib and brotli, the two checksums, and a tampered stream refused.
 - `formats` — every codec, one-shot, with the size it reached and a round-trip check.
+- `throughput` — megabytes per second for the one-shot codecs, best of several runs.
 - `stream` — the streaming pair, both ways, on a body taken a piece at a time.
 - `checksums` — CRC-32, Adler-32 and CRC-32C, one-shot and streamed a piece at a time.
 - `archive` — zip (Zip64, descriptors, a password) and tar, tar.gz and 7z.
@@ -96,11 +97,19 @@ for part in chunks {
 for b in reader.finish() { out.push(b) }       // and the trailer is checked here
 ```
 
-The only state carried between calls is the 32 KiB window a back-reference can
-reach, plus four bytes of running checksum — on both sides. `deflate`, `gzip` and
-`zlib` have the pair; `zip` has a writer that hands back each member's bytes as it
-adds them and a reader that walks local headers from the front, which is the only
-way to read an archive that is still arriving.
+The only state carried between calls is the window a back-reference can reach,
+plus a few bytes of running checksum — on both sides. `deflate`, `gzip`, `zlib`
+and `bzip2` have the pair; `bzip2`'s bound is one whole block, which is what its
+level sets, because the sort cannot begin until the block is complete. `zip` has
+a writer that hands back each member's bytes as it adds them and a reader that
+walks local headers from the front, which is the only way to read an archive that
+is still arriving.
+
+The block and frame formats — `lz4`, `snappy`, `zstd`, `brotli`, `lzma`, `xz` and
+`7z` — are one-shot on purpose. Their encoders pick their tables after seeing the
+whole input, so a pair that buffered everything and compressed at `finish` would
+be a streaming interface with none of the memory saving. They take a buffer and
+give one back; a caller holding a stream gathers it first.
 
 A chunk boundary may fall inside a header field, inside a Huffman code, inside a
 stored block, or between a member's data and its data descriptor. The tests feed
@@ -134,6 +143,8 @@ archive naming every member, so `names` reads that and stops. This is what
 @zip.zip(entries[:], zip64=true)          // sixty-four-bit sizes and offsets
 @zip.zip(entries[:], descriptor=true)     // sizes after each member, not before
 @zip.zip(entries[:], password="hunter2")  // ZipCrypto
+@zip.zip(entries[:], password="hunter2", aes=256)         // WinZip AES-256, AE-1
+@zip.zip(entries[:], password="hunter2", aes=256, ae=2)   // AE-2, CRC zeroed
 @zip.unzip(archive[:], password="hunter2")
 ```
 
@@ -157,12 +168,37 @@ and prefix fields stays in the ustar header, which is what readers from before
 2001 can read. Symbolic links, directories, permission bits, owners and base-256
 numbers all round-trip.
 
-**On encryption**: ZipCrypto is the cipher the format called encryption for
-fifteen years, and it is broken — a known-plaintext attack recovers the keys from
-a dozen bytes. It is here because archives in the wild still carry it, and opening
-one should not need a second tool. It is not a security boundary, and nothing in
-this library will claim it is. AES is the gap; it is named here rather than
-discovered later.
+**On encryption**: two schemes, and only one of them is a security boundary.
+
+ZipCrypto is the cipher the format called encryption for fifteen years, and it is
+broken — a known-plaintext attack recovers the keys from a dozen bytes. It is here
+because archives in the wild still carry it, and opening one should not need a
+second tool. It is not a security boundary, and nothing here will claim it is.
+
+WinZip AES is the real one. `aes=128`, `192` or `256` picks the key length; the
+bytes are encrypted in counter mode under a key derived by PBKDF2-HMAC-SHA1 with a
+thousand iterations, authenticated with an HMAC-SHA1 tag truncated to eighty bits,
+and stored as salt, verification value, ciphertext and tag. Both headers carry
+method 99 and a `0x9901` extra field naming the real method and the strength. AE-1
+(the default) keeps the CRC; AE-2 zeroes it, because the tag already proves
+integrity. Reading catches a wrong password from the two-byte verification value
+and a tampered payload from the tag, both before a byte is returned. The test
+suite reproduces the published WinZip AES vector byte for byte, which is what
+makes an archive written here open in 7-Zip and WinZip and one written there open
+here.
+
+**Volume splitting**: one archive carried in several files, `archive.z01`,
+`archive.z02`, … and finally `archive.zip`. A split archive is the same bytes cut
+at fixed boundaries — the central directory is still the last thing in the stream
+— so rejoining the pieces in order is the archive, and every reader understands
+it. `volume_names` gives the names the convention expects; the pieces are ordinary
+bytes, because this package never touches a file system.
+
+```moonbit
+let parts = @zip.zip_split(entries[:], 65536)  // volumes of at most 64 KiB
+@zip.volume_names("archive", parts.length())   // ["archive.z01", ..., "archive.zip"]
+let back = @zip.unzip_split(parts)             // if it arrives as several files
+```
 
 **A method this package does not implement** — bzip2 is 12, LZMA is 14 — is a
 `Codec` away rather than an edit here:
@@ -316,7 +352,8 @@ chunk of the format:
   encoder recognises costs a distance code instead of its letters.
 
 ```moonbit
-@brotli.brotli(body[:])              // window is a parameter, 10 to 24
+@brotli.brotli(body[:], window=22)   // window is 10 to 24
+@brotli.brotli(body[:], quality=11)  // search hardest; quality is 0 to 11
 @brotli.unbrotli(packed[:], limit=1 << 24)
 ```
 
@@ -328,8 +365,11 @@ quality 11 on English prose, which is where the dictionary does its work.
 
 **The writer is a plain LZ77 encoder**: a hash chain, one block type per stream,
 one literal code with no context modelling, and Huffman codes from exact counts.
-It does not use the dictionary and does not split blocks. On the body in the table
-below — 184,000 bytes of repetitive English — it reaches 682 bytes, ahead of gzip
+It does not use the dictionary and does not split blocks. `quality` (0 to 11,
+default 9) sets how far the chain is walked at each position and whether a lazy
+step is taken — more effort, never more bytes — and 0 is the single-candidate
+"fast" search LZ4 ships. It does not turn on the models above. On the body in the
+table below — 184,000 bytes of repetitive English — it reaches 682 bytes, ahead of gzip
 at 1,983 and zstd at 3,042, because one long match is worth more than everything
 the fancier models add. On prose it lands where gzip does: this repository's own
 README and homepage, 61,925 bytes, come out at 19,538 from brotli and 19,506
@@ -385,6 +425,37 @@ wins, because Huffman coding of literals is a thing lz4 does not do at all. The
 frame sizes are larger than the block sizes because each block restarts the match
 finder, which loses the cross-block matches a repetitive body lives on.
 
+## Throughput
+
+Sizes are one axis; the other is time. These are release-build numbers from
+`src/examples/throughput` on one machine, best of several runs, over a 1.5 MB body
+of words and numbers that compresses 3.4 to 1. A rate on a shared machine is a
+range rather than a constant, so read them as orders of magnitude.
+
+| Codec | Write MB/s | Read MB/s |
+|:--|--:|--:|
+| `deflate` | 9 | 50 |
+| `gzip` | 8 | 43 |
+| `zlib` | 9 | 49 |
+| `zstd` | 20 | 52 |
+| `brotli` (quality 9) | 1.4 | 54 |
+
+The same body through C zlib on the same machine — `zlib.compress(_, 6)` from
+Python — writes at about 18 MB/s and reads at 200–350 MB/s depending on how busy
+the machine is. The deflate writer is therefore within a factor of two of zlib.
+The inflate reader is a seventh to a quarter of zlib's decode rate: it brushes the
+quarter line this library set for itself rather than clearing it, and the reason is
+structural, not a missed constant. The Huffman decoder walks a code one bit at a
+time; the table-driven decoder that would close the gap has to look ahead across
+byte boundaries, which this reader's stored-block alignment does not allow — a
+prototype broke the compressed-to-stored transition and was not shipped. Saying so
+is better than a number taken on a body of one repeated sentence, where the rate
+measures a memcpy more than a decoder.
+
+`brotli`'s write rate is the price of its search: quality 9 walks up to 256 chain
+candidates at each position. `quality=1` is several times faster for a few per cent
+more bytes, which is the trade the knob exists to expose.
+
 ## What it reads and what it writes
 
 The DEFLATE reader takes **all three block types**, including the dynamic Huffman
@@ -399,18 +470,22 @@ the fixed and stored costs are arithmetic. This is what zlib does, and it is why
 Both containers **check their checksum and their length** on the way back.
 
 Every writer is **reproducible**: gzip writes a zero modification time and no file
-name, ZIP stamps the epoch, tar takes the time it is given, and ZipCrypto derives
-its twelve-byte header from a hash of the name, time and password rather than a
-random source. The same input gives the same bytes, so two builds can be compared
-and a cache entry can match.
+name, ZIP stamps the epoch, tar takes the time it is given, ZipCrypto derives its
+twelve-byte header from a hash of the name, time and password rather than a random
+source, and AES derives its per-entry salt from the name, time, entry offset and
+password — folding the offset in so two same-named entries still get distinct keys.
+The same input gives the same bytes, so two builds can be compared and a cache
+entry can match.
 
 ## Where the checksums live
 
-CRC-32, Adler-32 and CRC-32C are at the root, because more than one container
-specifies them — `gzip` puts CRC-32 in its trailer, `zip` in every entry, `snappy`
-puts CRC-32C in every chunk — and none of them should import another to reach it.
-Each has a struct beside the one-shot function (`Crc`, `Adler`, `Castagnoli`) for
-a body that is compressed as it arrives and cannot be checksummed in one call.
+CRC-32 and Adler-32 come from `mooncrypt`'s `sum` package and are re-exported at
+the root, because more than one container specifies them — `gzip` puts CRC-32 in
+its trailer, `zip` in every entry — and none of them should import another to reach
+it. CRC-32C stays here, because `mooncrypt` does not carry it and `snappy` puts it
+in every chunk. Each has a struct beside the one-shot function (`Crc`, `Adler`,
+`Castagnoli`) for a body that is compressed as it arrives and cannot be checksummed
+in one call.
 
 ## Why one package per format
 

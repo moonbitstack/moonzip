@@ -326,6 +326,42 @@ tar.gz    -> 170 bytes</pre>
         </p>
       </div>
     </div>
+
+    <p class="sub" style="margin-top:32px">
+      A member can be encrypted. ZipCrypto is the cipher the format called encryption
+      for fifteen years, and it is broken; WinZip AES is the real one — counter mode
+      under a PBKDF2-HMAC-SHA1 key, authenticated with an HMAC-SHA1 tag, at 128, 192
+      or 256 bits, in the AE-1 spelling that keeps the CRC or AE-2 that drops it. A
+      split archive is the same bytes in fixed-size pieces, <code>archive.z01</code>
+      through <code>archive.zip</code>, that rejoin into an ordinary archive.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">encrypt &amp; split</div>
+      <div>
+        <div class="code-head">moonbit<span></span></div>
+<pre class="code"><code class="hl">fn main raise {
+  let entries = [@zip.Entry::new("secret.txt", b"attack at dawn")]
+
+  let sealed = @zip.zip(entries[:], password="hunter2", aes=256)
+  let opened = @zip.unzip(sealed[:], password="hunter2")
+  println("aes-256  -> \{opened[0].name}, \{opened[0].data.length()} bytes")
+
+  let parts = @zip.zip_split(entries[:], 64)
+  println("volumes  -> \{parts.length()} pieces: \{@zip.volume_names("archive", parts.length()).join(", ")}")
+  let joined = @zip.unzip_split(parts)
+  println("rejoined -> \{joined[0].name}, \{joined[0].data.length()} bytes")
+}</code></pre>
+        <div class="code-head">output<span></span></div>
+<pre class="out">aes-256  -> secret.txt, 14 bytes
+volumes  -> 3 pieces: archive.z01, archive.z02, archive.zip
+rejoined -> secret.txt, 14 bytes</pre>
+        <p style="margin:14px 0 0;color:var(--ink-faint);font-size:13px">
+          A wrong password is caught by the two-byte verification value, and a tampered
+          payload by the tag, both before any byte is returned.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -339,6 +375,14 @@ tar.gz    -> 170 bytes</pre>
       holds the whole thing — only the 32 KiB window a back-reference can reach, plus
       four bytes of running checksum. <code>push</code> returns what is ready;
       <code>finish</code> flushes the rest and checks the trailer.
+    </p>
+    <p class="sub" style="margin-top:-8px">
+      <code>deflate</code>, <code>gzip</code>, <code>zlib</code> and <code>bzip2</code>
+      carry the pair. The frame formats — <code>lz4</code>, <code>snappy</code>,
+      <code>zstd</code>, <code>brotli</code>, <code>lzma</code>, <code>xz</code> — are
+      one-shot on purpose: their tables are chosen only after the whole input is seen,
+      so a pair that buffered everything would save no memory. They take a buffer and
+      give one back.
     </p>
 
     <div class="pair">
@@ -423,6 +467,11 @@ gunzip    -> 184000 bytes, matches: true</pre>
         <tr><td class="mono">— nothing</td><td class="mono">184,000</td><td class="mono">100%</td><td>The body, uncompressed, for reference.</td></tr>
       </tbody>
     </table>
+
+    <p class="sub" style="margin-top:22px">
+      <code>brotli</code> takes a <code>quality</code> from 0 to 11 — higher is slower
+      and never larger — and the row above is quality 9, the default.
+    </p>
 
     <p class="sub" style="margin-top:34px">
       Pick by what the caller does with the bytes. <b>Servicing a request:</b> lz4 or

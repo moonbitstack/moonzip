@@ -4,7 +4,7 @@
 ///|
 /// Every codec in one place: compress the same body with each, read it back, and
 /// report the size it reached and that the round trip held. The body is the same
-/// repetitive English the README's speed table is measured on, so the numbers
+/// repetitive English the README's size table is measured on, so the numbers
 /// are comparable across formats.
 ///
 ///     moon run src/examples/formats
