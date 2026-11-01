@@ -6,7 +6,7 @@
 ///
 /// tar carries more than files: a directory, a symbolic link, a hard link to a
 /// member further up, and the three device nodes. The ones a caller is likely to
-/// meet are here; the rest are kept as [`Other`](#Other) so that reading an
+/// meet are here; the rest are kept as `Other` so that reading an
 /// archive with a device node in it does not fail, and so that writing one back
 /// out produces what came in.
 pub(all) enum Tarball {

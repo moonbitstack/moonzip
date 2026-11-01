@@ -397,12 +397,34 @@ def render_doc(text):
         out.append("<p>%s</p>" % inline("\n".join(para)))
     return "\n".join(out)
 
+# Which package is being rendered, and which symbol names two packages both
+# define. Both are needed to make an anchor unique: `Reader` is a struct in five
+# packages and `frame` a function in two, and an anchor that is not unique sends
+# every one of those links to whichever came first.
+CTX = {"pkg": None, "ambiguous": set()}
+
+def anchor(name):
+    base = "sym-" + re.sub(r"[^\w]", "-", name)
+    if name in CTX["ambiguous"] and CTX["pkg"]:
+        return base + "--" + CTX["pkg"]
+    return base
+
+def anchor_member(owner, member):
+    return anchor(owner) + "-" + re.sub(r"[^\w]", "-", member)
+
+def xref(target):
+    """The id a doc comment's `(#target)` link should point at."""
+    if "::" in target:
+        owner, member = target.split("::", 1)
+        return anchor_member(owner, member)
+    return anchor(target)
+
 def inline(text):
     s = esc(text)
     # [code](#anchor) and [code]
     s = re.sub(r"\[`([^`]+)`\]\(#([^)]+)\)",
                lambda m: '<a class="xref" href="#%s"><code>%s</code></a>'
-               % (m.group(2), esc(m.group(1))), s)
+               % (xref(m.group(2)), esc(m.group(1))), s)
     s = re.sub(r"\[`([^`]+)`\]",
                lambda m: "<code>%s</code>" % esc(m.group(1)), s)
     # bare `code`
@@ -435,7 +457,7 @@ def render_fn(item, doc):
     html = ['<div class="api-item">']
     tag = "value" if item["kind"] == "let" else "fn"
     html.append('<h3 id="%s"><span class="ktag ktag--%s">%s</span>%s</h3>'
-                % ("sym-" + re.sub(r"[^\w]", "-", name), tag, tag, esc(name)))
+                % (anchor(name), tag, tag, esc(name)))
     html.append('<pre class="sig">%s</pre>' % hl(sig))
     if doc:
         html.append(render_doc(doc))
@@ -461,8 +483,8 @@ def render_type(t, item_doc, member_doc):
     tag = {"struct": "struct", "enum": "enum", "suberror": "error",
            "type": "type", "trait": "trait"}.get(kind, "type")
     html = ['<div class="api-item api-type">']
-    html.append('<h3 id="sym-%s"><span class="ktag ktag--%s">%s</span>%s</h3>'
-                % (esc(name), tag, tag, esc(name)))
+    html.append('<h3 id="%s"><span class="ktag ktag--%s">%s</span>%s</h3>'
+                % (anchor(name), tag, tag, esc(name)))
     doc = item_doc.get(name)
     if doc:
         html.append(render_doc(doc))
@@ -540,8 +562,8 @@ def render_type(t, item_doc, member_doc):
             params = parse_params(m["sig"])
             mdoc = item_doc.get("%s::%s" % (name, m["name"]))
             html.append('<div class="method">')
-            html.append('<h4 id="sym-%s-%s">%s</h4>'
-                        % (esc(name), esc(m["name"]), esc(m["name"])))
+            html.append('<h4 id="%s">%s</h4>'
+                        % (anchor_member(name, m["name"]), esc(m["name"])))
             html.append('<pre class="sig sig--method">%s</pre>' % hl(m["sig"]))
             if mdoc:
                 html.append(render_doc(mdoc))
@@ -749,9 +771,17 @@ def build_html(packages):
         toc.append('<a href="#pkg-%s">%s</a>' % (esc(short), esc(short)))
     toc.append('</nav>')
 
+    owners = {}
+    for short, pkg in packages.items():
+        for name in list(pkg["types"].keys()) + [f["name"] for f in pkg["fns"]]:
+            owners.setdefault(name, set()).add(short)
+    CTX["ambiguous"] = {n for n, ps in owners.items() if len(ps) > 1}
+
     sections = []
     for short in packages:
+        CTX["pkg"] = short
         sections.append(render_package(short, packages[short]))
+    CTX["pkg"] = None
 
     body = "\n".join(toc) + "\n" + "\n".join(sections)
     return (

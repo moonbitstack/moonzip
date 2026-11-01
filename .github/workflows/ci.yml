@@ -45,6 +45,13 @@ jobs:
       - name: moon test (all backends)
         run: moon test --target all
 
+      # The optimising build is not the same program: it inlines, it removes the
+      # reads it can prove are dead, and it is the one the throughput table and
+      # every published number come from. A test that only passes unoptimised is a
+      # test that passes in the wrong build.
+      - name: moon test (release)
+        run: moon test --target all --release
+
       - name: lint (fmt is clean)
         run: |
           moon fmt && git diff --exit-code
@@ -79,3 +86,10 @@ jobs:
           moon info
           python3 scripts/gen_api.py
           git diff --exit-code docs/api.html
+
+      # A hand-written page has no compiler, and the things that break in one are
+      # the things a browser forgives: an anchor that no longer exists, a link to a
+      # file that was renamed, a section left open. Failing here is cheaper than
+      # finding out from a reader.
+      - name: the documentation pages hold together
+        run: python3 scripts/check_docs.py
