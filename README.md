@@ -390,9 +390,10 @@ move-to-front, the distance ring with all sixteen short codes, and every one of
 the 121 dictionary transforms. It reads streams at qualities 0 through 11 and windows 10 through 24, including
 quality 11 on English prose, which is where the dictionary does its work.
 
-**The writer is greedy LZ77 with three of brotli's four ideas.** A hash chain and
-Huffman codes from exact counts at every quality; at quality 10 and 11, literal
-contexts, a split command stream and the static dictionary. `quality` (0 to 11,
+**The writer is greedy LZ77 with brotli's three models bolted on.** A hash chain
+and Huffman codes from exact counts at every quality; at quality 10 and 11, literal
+contexts, block types for the command and literal streams, and the static
+dictionary. `quality` (0 to 11,
 default 9) is how much of that is on, and how far the chain is walked at each
 position: more effort, never more bytes, and 0 is the single-candidate "fast"
 search LZ4 ships. On the body in the table below — 184,000 bytes of repetitive
@@ -424,13 +425,13 @@ because one long match is worth more than everything the fancier models add.
   bucket, and the transform decides how much comes out, so `time` with the
   space-suffix transform is a copy of four bytes that produces five.
 
-Both searches **price what they are choosing instead of estimating it**: the
-candidate code is written to a throwaway bit stream and counted. An estimate of
+Every one of those choices **prices what it is choosing instead of estimating it**:
+the candidate code is written to a throwaway bit stream and counted. An estimate of
 "so many bits per used symbol" is wrong by enough to accept splits that then come
 out larger than the stream they were meant to shrink, which is exactly what
 happened here first — a body of short repeated phrases grew by six bytes at
-quality 11. With exact pricing, asking for context modelling or a command split
-can no longer cost bytes, and a test pins that.
+quality 11. With exact pricing, turning any of them on can no longer cost bytes,
+and a test pins that.
 
 The literal cut is the one that varies most with the body, and it is measured in
 both directions. On this repository's own documentation it is worth nothing and is
@@ -442,11 +443,11 @@ the shape the feature exists for, and the reason the decision is priced rather t
 assumed either way.
 
 On this repository's own documentation — README, homepage and guide, about 102 KB
-— quality 9 gives 28,823 bytes and quality 11 gives 26,720, which is 7.3% smaller.
+— quality 9 gives 28,834 bytes and quality 11 gives 26,722, which is 7.3% smaller.
 The literal context model is 534 of those bytes, the stream splits 59, and the
-dictionary 1,485 — by far the largest, because prose is mostly words the dictionary
+dictionary 1,491 — by far the largest, because prose is mostly words the dictionary
 already has, and the affix transforms alone are 500 of them. For scale, the
-reference encoder reaches 26,376 on the same bytes at quality 9 and 23,881 at
+reference encoder reaches 26,383 on the same bytes at quality 9 and 23,874 at
 quality 11, so this writer is 9% behind at nine and 12% behind at eleven. What it
 still does not do is reach the transforms whose prefix is not empty; that is most
 of what is left.
