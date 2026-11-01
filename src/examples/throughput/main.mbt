@@ -28,7 +28,7 @@ fn corpus() -> Bytes {
   let mut state : UInt32 = 123456789U
   while out.length() < 1500000 {
     state = state * 1103515245U + 12345U
-    let word = words[((state >> 16).reinterpret_as_int()) % 16]
+    let word = words[(state >> 16).reinterpret_as_int() % 16]
     for b in @utf8.encode(word) {
       out.push(b)
     }
@@ -61,7 +61,7 @@ fn best(action : () -> Unit raise) -> Double raise {
 }
 
 ///|
-fn report(name : String, bytes : Int, micros : Double) -> Unit {
+fn report(name : String, bytes : Int32, micros : Double) -> Unit {
   // Bytes per microsecond is megabytes per second: 1e6 bytes over 1e6 µs.
   let rate = if micros <= 0.0 { 0.0 } else { bytes.to_double() / micros }
   println("\{name}: \{rate} MB/s")

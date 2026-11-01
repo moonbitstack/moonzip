@@ -210,8 +210,5 @@ test "quality trades ratio for time without breaking the stream" {
 /// what `quality=9` produces — the bytes earlier versions wrote.
 test "the default quality is nine" {
   let data = b"the quick brown fox jumps over the lazy dog, again and again and again."
-  assert_eq(
-    @brotli.brotli(data[:]),
-    @brotli.brotli(data[:], quality=9),
-  )
+  assert_eq(@brotli.brotli(data[:]), @brotli.brotli(data[:], quality=9))
 }

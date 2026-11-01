@@ -33,7 +33,7 @@ pub(all) struct Crc {
 
 ///|
 pub fn Crc::new() -> Crc {
-  { inner: @crc32.Crc32::new() }
+  { inner: @crc32.Crc32::new(), }
 }
 
 ///|
@@ -55,7 +55,7 @@ pub(all) struct Adler {
 
 ///|
 pub fn Adler::new() -> Adler {
-  { inner: @adler32.Adler32::new() }
+  { inner: @adler32.Adler32::new(), }
 }
 
 ///|

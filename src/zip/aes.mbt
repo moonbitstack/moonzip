@@ -78,12 +78,13 @@ fn aes_salt(
 ) -> Bytes {
   let mut mix = @moonzip.crc32(@utf8.encode(name)[:]) ^
     @moonzip.crc32(@utf8.encode(password)[:])
-  for part in [
-    (mtime % 65536L).to_int(),
-    (mtime / 65536L % 65536L).to_int(),
-    (at % 65536L).to_int(),
-    (at / 65536L % 65536L).to_int(),
-  ] {
+  for
+    part in [
+      (mtime % 65536L).to_int(),
+      (mtime / 65536L % 65536L).to_int(),
+      (at % 65536L).to_int(),
+      (at / 65536L % 65536L).to_int(),
+    ] {
     mix = crc_byte(mix, (part & 0xFF).to_byte())
     mix = crc_byte(mix, ((part >> 8) & 0xFF).to_byte())
   }
@@ -168,10 +169,14 @@ pub fn aes_encrypt(
   let auth = material[klen:klen + klen]
   let cipher = try @aes.Cipher::new(enc) catch {
     _ => abort("zip: an AES key of the wrong length")
-  } noraise { c => c }
+  } noraise {
+    c => c
+  }
   let ctr = try @mode.Ctr::new(cipher, aes_nonce()[:]) catch {
     _ => abort("zip: the AES counter was refused")
-  } noraise { m => m }
+  } noraise {
+    m => m
+  }
   let cipher_text = ctr.apply(data)
   let mac = @hmac.Hmac::new(auth, sha1_hash)
   mac.write(cipher_text[:])
@@ -231,7 +236,10 @@ pub fn aes_decrypt(
   let tag = data[salt_len + 2 + cipher_len:data.length()]
   let (material, pv) = aes_derive(password, salt, s)
   guard seen_pv == pv else {
-    raise @moonzip.Header(at=salt_len, what="the password does not decrypt this entry")
+    raise @moonzip.Header(
+      at=salt_len,
+      what="the password does not decrypt this entry",
+    )
   }
   let enc = material[0:klen]
   let auth = material[klen:klen + klen]
@@ -246,10 +254,14 @@ pub fn aes_decrypt(
   }
   let cipher = try @aes.Cipher::new(enc) catch {
     _ => abort("zip: an AES key of the wrong length")
-  } noraise { c => c }
+  } noraise {
+    c => c
+  }
   let ctr = try @mode.Ctr::new(cipher, aes_nonce()[:]) catch {
     _ => abort("zip: the AES counter was refused")
-  } noraise { m => m }
+  } noraise {
+    m => m
+  }
   ctr.apply(cipher_text)
 }
 

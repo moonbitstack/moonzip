@@ -39,18 +39,13 @@ test "a split archive reads back" {
 /// final `.zip`, with a single volume being just `.zip`.
 test "volume names follow the convention" {
   assert_eq(@zip.volume_names("archive", 1), ["archive.zip"])
-  assert_eq(
-    @zip.volume_names("archive", 3),
-    ["archive.z01", "archive.z02", "archive.zip"],
-  )
-  assert_eq(
-    @zip.volume_names("archive", 11),
-    [
-      "archive.z01", "archive.z02", "archive.z03", "archive.z04", "archive.z05",
-      "archive.z06", "archive.z07", "archive.z08", "archive.z09", "archive.z10",
-      "archive.zip",
-    ],
-  )
+  assert_eq(@zip.volume_names("archive", 3), [
+    "archive.z01", "archive.z02", "archive.zip",
+  ])
+  assert_eq(@zip.volume_names("archive", 11), [
+    "archive.z01", "archive.z02", "archive.z03", "archive.z04", "archive.z05", "archive.z06",
+    "archive.z07", "archive.z08", "archive.z09", "archive.z10", "archive.zip",
+  ])
 }
 
 ///|
@@ -68,7 +63,11 @@ test "a one-byte volume still reassembles" {
 /// Splitting an encrypted archive keeps the encryption intact: the volumes are
 /// just bytes, and reading them back still needs the password.
 test "an encrypted archive splits and reads back" {
-  let entry = @zip.Entry::new("s.txt", b"secret payload", kind=@zip.Kind::Stored)
+  let entry = @zip.Entry::new(
+    "s.txt",
+    b"secret payload",
+    kind=@zip.Kind::Stored,
+  )
   let volumes = @zip.zip_split([entry][:], 12, password="pw", aes=256)
   assert_true(volumes.length() > 1)
   let back = @zip.unzip_split(volumes, password="pw")

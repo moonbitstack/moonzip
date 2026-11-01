@@ -172,7 +172,17 @@ pub fn Writer::new(
   aes~ : Int32 = 0,
   ae~ : Int32 = 1,
 ) -> Writer {
-  { level, zip64, descriptor, password, aes, ae, placed: [], at: 0L, closed: false, }
+  {
+    level,
+    zip64,
+    descriptor,
+    password,
+    aes,
+    ae,
+    placed: [],
+    at: 0L,
+    closed: false,
+  }
 }
 
 ///|

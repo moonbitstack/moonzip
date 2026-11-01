@@ -82,7 +82,7 @@ pub fn brotli(
   quality~ : Int32 = 9,
 ) -> Bytes {
   let (depth, lazymatch) = effort(quality)
-  compress(data, window, 1 << 24, depth=depth, lazymatch=lazymatch)
+  compress(data, window, 1 << 24, depth~, lazymatch~)
 }
 
 ///|
@@ -133,7 +133,17 @@ fn compress(
   let total = data.length()
   while at < total {
     let span = if total - at > block { block } else { total - at }
-    write_block(w, data, at, span, (1 << size) - 16, table, chain, depth, lazymatch)
+    write_block(
+      w,
+      data,
+      at,
+      span,
+      (1 << size) - 16,
+      table,
+      chain,
+      depth,
+      lazymatch,
+    )
     at += span
   }
   // The stream ends with a meta-block that is both last and empty: one bit for

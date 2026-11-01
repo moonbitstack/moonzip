@@ -21,9 +21,21 @@ fn aes_ctx(key : BytesView) -> @aes.Cipher {
 /// PBKDF2-HMAC-SHA1 against the RFC 6070 cases, which pin the iteration count
 /// and the block counter before anything WinZip-specific is layered on top.
 test "pbkdf2-hmac-sha1 matches RFC 6070" {
-  let one = @pbkdf2.key(b"password"[:], b"salt"[:], sha1_factory, rounds=1, len=20)
+  let one = @pbkdf2.key(
+    b"password"[:],
+    b"salt"[:],
+    sha1_factory,
+    rounds=1,
+    len=20,
+  )
   assert_eq(@base16.encode(one), "0c60c80f961f0e71f3a9b524af6012062fe037a6")
-  let two = @pbkdf2.key(b"password"[:], b"salt"[:], sha1_factory, rounds=2, len=20)
+  let two = @pbkdf2.key(
+    b"password"[:],
+    b"salt"[:],
+    sha1_factory,
+    rounds=2,
+    len=20,
+  )
   assert_eq(@base16.encode(two), "ea6c014dc72d6f8ccd1ed92ace1d41f0d8de8957")
   let many = @pbkdf2.key(
     b"password"[:],
@@ -50,7 +62,9 @@ test "the published WinZip AES vector" {
   )
   let nonce = @base16.decode_lossy("01000000000000000000000000000000")
   let plain = @utf8.encode("Hello World\r\n")
-  let cipher_text = @mode.Ctr::new(aes_ctx(enc_key[:]), nonce[:]).apply(plain[:])
+  let cipher_text = @mode.Ctr::new(aes_ctx(enc_key[:]), nonce[:]).apply(
+    plain[:],
+  )
   assert_eq(@base16.encode(cipher_text), "e0ba876cd116a6df91cf7f8a14")
   // The tag is HMAC-SHA1 over the ciphertext, truncated to eighty bits.
   let tag = @hmac.mac(auth_key[:], cipher_text[:], sha1_factory)
@@ -70,7 +84,7 @@ test "aes round-trips at every strength and AE version" {
         [entry][:],
         password="correct horse battery",
         aes=strength,
-        ae=ae,
+        ae~,
       )
       let back = @zip.unzip(archive[:], password="correct horse battery")
       assert_eq(back[0].data, data)
@@ -150,14 +164,30 @@ test "aes names come out without a password" {
 /// salt folds in the entry's offset. Distinct salts mean distinct keys, so the
 /// counter mode never reuses one keystream across two members.
 test "same-named entries get distinct ciphertexts" {
-  let entry = @zip.Entry::new("same.txt", b"identical content", kind=@zip.Kind::Stored)
+  let entry = @zip.Entry::new(
+    "same.txt",
+    b"identical content",
+    kind=@zip.Kind::Stored,
+  )
   let archive = @zip.zip([entry, entry][:], password="pw", aes=256)
   let back = @zip.unzip(archive[:], password="pw")
   assert_eq(back.length(), 2)
   assert_eq(back[0].data, b"identical content")
   assert_eq(back[1].data, b"identical content")
   // The two payloads must not be byte-identical, or the keystream repeated.
-  let first = @zip.aes_encrypt(b"identical content"[:], "pw", "same.txt", 0L, 0L)
-  let second = @zip.aes_encrypt(b"identical content"[:], "pw", "same.txt", 0L, 40L)
+  let first = @zip.aes_encrypt(
+    b"identical content"[:],
+    "pw",
+    "same.txt",
+    0L,
+    0L,
+  )
+  let second = @zip.aes_encrypt(
+    b"identical content"[:],
+    "pw",
+    "same.txt",
+    0L,
+    40L,
+  )
   assert_not_eq(first, second)
 }
