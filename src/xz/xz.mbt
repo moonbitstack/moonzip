@@ -316,7 +316,61 @@ pub fn unxz(data : BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused {
       out.push(b)
     }
   }
+  // The index and the footer are the two things a truncated file takes away, and
+  // they are the only things that say the file arrived whole. Reading blocks until
+  // the data runs out decodes a file whose last byte was lost just as happily as
+  // one that ended, which is exactly the failure a reader must not paper over.
+  let end = stream_end(data)
+  guard data[end - 2] == b'Y' && data[end - 1] == b'Z' else {
+    raise @moonzip.Header(
+      at=end - 2,
+      what="no stream footer, so the file is not whole",
+    )
+  }
+  let want_footer = read32(data, end - 12)
+  // The CRC covers the two fields after it — the backward size and the stream
+  // flags — and neither the CRC itself nor the two magic bytes.
+  let got_footer = @moonzip.crc32(data[end - 8:end - 2])
+  if got_footer != want_footer {
+    raise @moonzip.Checksum(want=want_footer, got=got_footer)
+  }
+  let backwards = read32(data, end - 8).reinterpret_as_int()
+  let index_size = (backwards + 1) * 4
+  guard end - 12 >= index_size + 12 else {
+    raise @moonzip.Truncated(at=end - 12)
+  }
+  let index_at = end - 12 - index_size
+  guard index_at == at else {
+    raise @moonzip.Header(
+      at=index_at,
+      what="the index does not start where the footer says it does",
+    )
+  }
+  let want_index = read32(data, end - 16)
+  let got_index = @moonzip.crc32(data[index_at:end - 16])
+  if got_index != want_index {
+    raise @moonzip.Checksum(want=want_index, got=got_index)
+  }
   Bytes::from_array(out)
+}
+
+///|
+/// Where a stream ends, which is not always where the file ends.
+///
+/// The format allows padding after the footer: four-byte groups of zeros, so that a
+/// stream can be concatenated with the next one. Nothing writes them by accident,
+/// and a decoder that ignored them would report the second stream of a concatenated
+/// file as trailing rubbish.
+fn stream_end(data : BytesView) -> Int32 {
+  let mut end = data.length()
+  while end >= 16 &&
+        data[end - 1] == b'\x00' &&
+        data[end - 2] == b'\x00' &&
+        data[end - 3] == b'\x00' &&
+        data[end - 4] == b'\x00' {
+    end -= 4
+  }
+  end
 }
 
 ///|
