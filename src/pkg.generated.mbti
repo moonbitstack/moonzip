@@ -3,6 +3,8 @@ package "moonbitstack/moonzip"
 
 import {
   "moonbitlang/core/debug",
+  "moonbitstack/mooncrypt/sum/adler32",
+  "moonbitstack/mooncrypt/sum/crc32",
 }
 
 // Values
@@ -33,8 +35,7 @@ pub impl Show for Refused
 
 // Types and methods
 pub(all) struct Adler {
-  mut a : UInt32
-  mut b : UInt32
+  inner : @adler32.Adler32
 }
 pub fn Adler::finish(Self) -> UInt32
 pub fn Adler::new() -> Self
@@ -48,7 +49,7 @@ pub fn Castagnoli::new() -> Self
 pub fn Castagnoli::push(Self, BytesView) -> Unit
 
 pub(all) struct Crc {
-  mut state : UInt32
+  inner : @crc32.Crc32
 }
 pub fn Crc::finish(Self) -> UInt32
 pub fn Crc::new() -> Self

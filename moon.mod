@@ -14,6 +14,7 @@ description = "Compression and archives for MoonBit, one format per package."
 
 import {
   "moonbitstack/moonbase@0.4.2",
+  "moonbitstack/mooncrypt@0.4.6",
 }
 
 source = "src"
