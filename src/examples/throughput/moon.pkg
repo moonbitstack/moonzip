@@ -1,0 +1,12 @@
+// Throughput for the one-shot codecs: `moon run src/examples/throughput`.
+pkgtype(kind: "executable")
+
+import {
+  "moonbitstack/moonzip/deflate",
+  "moonbitstack/moonzip/gzip",
+  "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonzip/zstd",
+  "moonbitstack/moonzip/brotli",
+  "moonbitlang/core/bench",
+  "moonbitlang/core/encoding/utf8",
+}
