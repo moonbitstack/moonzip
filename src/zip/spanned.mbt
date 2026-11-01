@@ -16,6 +16,12 @@
 /// would need Zip64 rather than writing a spanned archive the wide form cannot
 /// agree with. For volumes under four gigabytes and fewer than sixty-five
 /// thousand of them, that is every archive this package writes.
+///
+/// The end record must lie wholly on the last disk — a reader handed that piece
+/// alone finds the directory from it — so the last disk begins at the largest
+/// multiple of the requested size that does not pass the record. Every disk
+/// before it is exactly the size asked for; the last is the one that may be
+/// larger, by the length of the directory's tail and the record.
 
 ///|
 fn sp16(b : Array[Byte], i : Int32) -> Int32 {
@@ -96,7 +102,13 @@ pub fn zip_spanned(
   }
   let total = out.length().to_int64()
   let width = size.to_int64()
-  let disks = ((total + width - 1L) / width).to_int()
+  // The end record must lie wholly on the last disk, or a reader handed that
+  // piece alone cannot find it. So the last disk begins at the largest multiple
+  // of the volume size that does not pass the record's first byte: every disk
+  // before it is exactly the size asked for, and the last carries the
+  // directory's tail and the end record, which is what makes it a little larger.
+  let last_start = (total - 22L) / width * width
+  let last = (last_start / width).to_int()
   // Rewrite each directory record: the disk the member starts on, and its
   // offset from that disk's first byte.
   let mut at = cd_start.to_int()
@@ -110,13 +122,12 @@ pub fn zip_spanned(
   // The end record lives on the last disk, names the disk the directory starts
   // on, and gives that disk's relative offset for it.
   let end = out.length() - 22
-  let last = disks - 1
   let cd_disk = (cd_start / width).to_int()
   let cd_rel = (cd_start - cd_disk.to_int64() * width).to_int()
   let mut on_last = 0
   let mut walk = cd_start.to_int()
   for _ in 0..<count {
-    if (walk.to_int64() / width).to_int() == last {
+    if walk.to_int64() >= last_start {
       on_last += 1
     }
     walk += 46 +
@@ -131,13 +142,14 @@ pub fn zip_spanned(
   sp_put32(out, end + 16, cd_rel.reinterpret_as_uint())
   let bytes = Bytes::from_array(out)
   let volumes : Array[Bytes] = []
+  let stop = last_start.to_int()
   let n = total.to_int()
   let mut from = 0
-  while from < n {
-    let to = if from + size > n { n } else { from + size }
-    volumes.push(bytes[from:to].to_owned())
-    from = to
+  while from < stop {
+    volumes.push(bytes[from:from + size].to_owned())
+    from += size
   }
+  volumes.push(bytes[stop:n].to_owned())
   volumes
 }
 

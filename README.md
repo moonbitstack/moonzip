@@ -214,8 +214,18 @@ let disks = @zip.zip_spanned(entries[:], 65536)  // true spanned disks
 @zip.unzip_spanned(disks)                        // disk numbers translated back
 ```
 
-A spanned archive here keeps every offset in thirty-two bits, so a member that
-would need Zip64 is refused rather than written with a field it cannot agree with.
+The end record has to lie wholly on the last disk, or a reader handed that piece
+alone cannot find the directory, so the last disk begins at the largest multiple
+of the size that does not pass it. Every disk before it is exactly the size asked
+for; the last is the one that may be a little larger. Offsets stay in thirty-two
+bits, so a member that would need Zip64 is refused rather than written with a
+field it cannot agree with.
+
+Verified against libarchive (`bsdtar`) on the concatenated disks: a member
+recorded as disk 1, relative offset 3 is read at byte 131, which only works if the
+disk number is honoured — and it extracts byte for byte. Info-ZIP `unzip` reads
+the byte-range `split` form after rejoining, but says outright that it has no
+multi-part support, so it is not the tool for this one.
 
 **A method this package does not implement** — bzip2 is 12, LZMA is 14 — is a
 `Codec` away rather than an edit here:

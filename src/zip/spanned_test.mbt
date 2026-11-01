@@ -32,7 +32,11 @@ test "a one-disk spanned archive is the ordinary archive" {
 /// Every volume but the last is exactly the requested size.
 test "every volume but the last is full" {
   let entries = [
-    @zip.Entry::new("x", Bytes::from_array(Array::make(500, b'a'))),
+    @zip.Entry::new(
+      "x",
+      Bytes::from_array(Array::make(500, b'a')),
+      kind=@zip.Kind::Stored,
+    ),
   ]
   let volumes = @zip.zip_spanned(entries[:], 100)
   assert_true(volumes.length() > 1)
@@ -48,7 +52,11 @@ test "every volume but the last is full" {
 /// than a byte split: `split` would have left every disk number at zero.
 test "the end record names the last disk" {
   let entries = [
-    @zip.Entry::new("x", Bytes::from_array(Array::make(600, b'a'))),
+    @zip.Entry::new(
+      "x",
+      Bytes::from_array(Array::make(600, b'a')),
+      kind=@zip.Kind::Stored,
+    ),
   ]
   let volumes = @zip.zip_spanned(entries[:], 100)
   assert_true(volumes.length() > 1)
