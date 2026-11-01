@@ -11,6 +11,15 @@ import {
 }
 
 import {
+  "moonbitstack/mooncrypt/cipher/aes",
+  "moonbitstack/mooncrypt/cipher/mode",
+  "moonbitstack/mooncrypt/mac/hmac",
+  "moonbitstack/mooncrypt/hash/sha1",
+  "moonbitstack/mooncrypt/kdf/pbkdf2",
+  "moonbitstack/mooncrypt/spec",
+}
+
+import {
   "moonbitstack/moonzip/zip",
   "moonbitstack/moonbase/base16",
 } for "test"

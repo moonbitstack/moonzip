@@ -120,6 +120,8 @@ priv struct Placed {
   mtime : Int64
   offset : Int64
   widened : Bool
+  aes : Int32
+  ae : Int32
 }
 
 ///|
@@ -143,14 +145,18 @@ priv struct Placed {
 /// a member it has not finished reading must do — it cannot know the sizes when
 /// it writes the header — and it costs twelve bytes a member.
 ///
-/// `password?` encrypts each member with ZipCrypto, which is what the format
-/// called encryption for fifteen years. It is not a security boundary; see
-/// [`zipcrypt_encrypt`](#zipcrypt_encrypt).
+/// `password?` encrypts each member. With no `aes` strength it uses ZipCrypto,
+/// which the format called encryption for fifteen years and which is not a
+/// security boundary (see [`zipcrypt_encrypt`](#zipcrypt_encrypt)). With an `aes`
+/// strength of 128, 192 or 256 it uses WinZip AES instead (see
+/// [`aes_encrypt`](#aes_encrypt)), which is.
 struct Writer {
   level : Int32
   zip64 : Bool
   descriptor : Bool
   password : String?
+  aes : Int32
+  ae : Int32
   placed : Array[Placed]
   mut at : Int64
   mut closed : Bool
@@ -163,8 +169,10 @@ pub fn Writer::new(
   zip64~ : Bool = false,
   descriptor~ : Bool = false,
   password? : String,
+  aes~ : Int32 = 0,
+  ae~ : Int32 = 1,
 ) -> Writer {
-  { level, zip64, descriptor, password, placed: [], at: 0L, closed: false, }
+  { level, zip64, descriptor, password, aes, ae, placed: [], at: 0L, closed: false, }
 }
 
 ///|
@@ -200,6 +208,14 @@ pub fn Writer::add(
         None => abort("zip: no codec for compression method \{id}")
       }
   }
+  if self.aes > 0 && self.password is None {
+    abort("zip: AES encryption needs a password")
+  }
+  let real_method = number(how)
+  let header_method = if self.aes > 0 { 99 } else { real_method }
+  // AE-2 zeroes the CRC: the authentication tag already covers integrity, and a
+  // CRC of data the reader is told not to check is a field that lies.
+  let header_sum = if self.aes > 0 && self.ae == 2 { 0U } else { sum }
   let (time, date) = dos_time(entry.mtime)
   // With a data descriptor the local header cannot say the checksum yet, so
   // the byte that proves a password right is taken from the time instead. That
@@ -212,7 +228,18 @@ pub fn Writer::add(
   }
   let body = match self.password {
     Some(password) =>
-      zipcrypt_encrypt(packed[:], password, entry.name, entry.mtime, check)
+      if self.aes > 0 {
+        aes_encrypt(
+          packed[:],
+          password,
+          entry.name,
+          entry.mtime,
+          self.at,
+          strength=self.aes,
+        )
+      } else {
+        zipcrypt_encrypt(packed[:], password, entry.name, entry.mtime, check)
+      }
     None => packed
   }
   let packed_len = body.length().to_int64()
@@ -231,14 +258,25 @@ pub fn Writer::add(
     flags = flags | 0x0008
   }
   let extra = if widen { zip64_local(unpacked_len, packed_len) } else { [] }
+  if self.aes > 0 {
+    // The 0x9901 field: the vendor version (AE-1 or AE-2), the vendor id "AE",
+    // the strength, and the real method that 99 stands in for.
+    le16(extra, 0x9901)
+    le16(extra, 7)
+    le16(extra, if self.ae == 2 { 0x0002 } else { 0x0001 })
+    extra.push(b'A')
+    extra.push(b'E')
+    extra.push(aes_byte(self.aes).to_byte())
+    le16(extra, real_method)
+  }
   let out : Array[Byte] = []
   le32(out, 0x04034B50U)
   le16(out, if widen { 45 } else { 20 })
   le16(out, flags)
-  le16(out, number(how))
+  le16(out, header_method)
   le16(out, time)
   le16(out, date)
-  le32(out, if self.descriptor { 0U } else { sum })
+  le32(out, if self.descriptor { 0U } else { header_sum })
   le32(
     out,
     if self.descriptor {
@@ -272,7 +310,7 @@ pub fn Writer::add(
   }
   if self.descriptor {
     le32(out, 0x08074B50U)
-    le32(out, sum)
+    le32(out, header_sum)
     if widen {
       le64(out, packed_len)
       le64(out, unpacked_len)
@@ -286,12 +324,14 @@ pub fn Writer::add(
     name: entry.name,
     comment: entry.comment,
     how,
-    sum,
+    sum: header_sum,
     packed: packed_len,
     unpacked: unpacked_len,
     mtime: entry.mtime,
     offset,
     widened: widen,
+    aes: self.aes,
+    ae: self.ae,
   })
   Bytes::from_array(out)
 }
@@ -319,6 +359,15 @@ pub fn Writer::finish(self : Writer) -> Bytes {
     } else {
       []
     }
+    if placed.aes > 0 {
+      le16(extra, 0x9901)
+      le16(extra, 7)
+      le16(extra, if placed.ae == 2 { 0x0002 } else { 0x0001 })
+      extra.push(b'A')
+      extra.push(b'E')
+      extra.push(aes_byte(placed.aes).to_byte())
+      le16(extra, number(placed.how))
+    }
     le32(out, 0x02014B50U)
     // "Made by" keeps the DOS host, as it always has, so the bytes of an
     // archive that needs no widening do not change; the version needed says
@@ -331,7 +380,7 @@ pub fn Writer::finish(self : Writer) -> Bytes {
       (if self.descriptor { 0x0008 } else { 0 }) |
       0x0800,
     )
-    le16(out, number(placed.how))
+    le16(out, if placed.aes > 0 { 99 } else { number(placed.how) })
     le16(out, time)
     le16(out, date)
     le32(out, placed.sum)

@@ -225,9 +225,11 @@ fn unix_time(time : Int32, date : Int32) -> Int64 {
 /// is stored instead, which is what `zip` itself does: a member should never
 /// grow by being compressed.
 ///
-/// `zip64`, `descriptor` and `password` are the [`Writer`](#Writer)'s knobs, and
-/// they mean the same thing here. This function is that writer with every entry
-/// in hand at once.
+/// `zip64`, `descriptor`, `password`, `aes` and `ae` are the
+/// [`Writer`](#Writer)'s knobs, and they mean the same thing here. `aes` is 0
+/// for no AES (ZipCrypto if a password is given), or 128, 192 or 256 for WinZip
+/// AES at that strength. This function is that writer with every entry in hand
+/// at once.
 pub fn zip(
   entries : ArrayView[Entry],
   level~ : Int32 = level,
@@ -235,8 +237,10 @@ pub fn zip(
   zip64~ : Bool = false,
   descriptor~ : Bool = false,
   password? : String,
+  aes~ : Int32 = 0,
+  ae~ : Int32 = 1,
 ) -> Bytes {
-  let writer = Writer::new(level~, zip64~, descriptor~, password?)
+  let writer = Writer::new(level~, zip64~, descriptor~, password?, aes~, ae~)
   let out : Array[Byte] = []
   for entry in entries {
     for b in writer.add(entry, codecs~) {
@@ -320,6 +324,10 @@ priv struct Listed {
   comment : String
   at : Int64
   flags : Int32
+  /// The AES strength byte (1, 2 or 3), or 0 when the entry is not AES.
+  aes : Int32
+  /// The AE version (1 or 2), or 0 when the entry is not AES.
+  ae : Int32
 }
 
 ///|
@@ -382,9 +390,20 @@ fn directory(archive : BytesView) -> Array[Listed] raise @moonzip.Refused {
         }
       }
     }
+    // A method of 99 with the 0x9901 marker means the bytes are AES-encrypted;
+    // that field names the method that was encrypted, the strength, and the AE
+    // version. A bare 99 without the field is just a method a caller's codec
+    // might own, which is why the marker and not the number alone decides.
+    let method_field = read16(archive, at + 10)
+    let (found, real_method, aes_strength, ae_version) = aes_info(extra)
+    let (how, aes, ae) = if method_field == 99 && found {
+      (real_method, aes_strength, ae_version)
+    } else {
+      (method_field, 0, 0)
+    }
     out.push({
       name: text(archive[head:head + name_len]),
-      how: read16(archive, at + 10),
+      how,
       sum: read32(archive, at + 16),
       packed,
       unpacked,
@@ -397,6 +416,8 @@ fn directory(archive : BytesView) -> Array[Listed] raise @moonzip.Refused {
       ),
       at: offset,
       flags,
+      aes,
+      ae,
     })
     at = head + name_len + extra_len + comment_len
   }
@@ -430,15 +451,23 @@ fn unpack(
   password : String?,
   check : Byte,
   codecs : ArrayView[&Codec],
+  aes~ : Int32 = 0,
 ) -> Bytes raise @moonzip.Refused {
-  let plain = match password {
-    Some(secret) =>
-      if payload.length() == 0 {
-        raise @moonzip.Header(at~, what="an encrypted entry with no header")
-      } else {
-        zipcrypt_decrypt(payload, secret, check)
-      }
-    None => payload.to_owned()
+  let plain = if aes > 0 {
+    match password {
+      Some(secret) => aes_decrypt(payload, secret, aes)
+      None => raise @moonzip.Header(at~, what="an AES entry needs a password")
+    }
+  } else {
+    match password {
+      Some(secret) =>
+        if payload.length() == 0 {
+          raise @moonzip.Header(at~, what="an encrypted entry with no header")
+        } else {
+          zipcrypt_decrypt(payload, secret, check)
+        }
+      None => payload.to_owned()
+    }
   }
   match how {
     0 => plain
@@ -485,16 +514,30 @@ fn content(
   } else {
     ((listed.sum >> 24) & 0xFFU).to_byte()
   }
-  let data = unpack(packed, listed.how, at + 8, limit, password, check, codecs)
+  let data = unpack(
+    packed,
+    listed.how,
+    at + 8,
+    limit,
+    password,
+    check,
+    codecs,
+    aes=aes_bits(listed.aes),
+  )
   if data.length().to_int64() != listed.unpacked {
     raise @moonzip.Length(
       want=listed.unpacked.to_int().reinterpret_as_uint(),
       got=data.length(),
     )
   }
-  let got = @moonzip.crc32(data[:])
-  guard got == listed.sum else {
-    raise @moonzip.Checksum(want=listed.sum, got~)
+  // AE-2 zeroes the CRC — the authentication tag already proved integrity — so
+  // there is nothing to check there. AE-1 keeps it, and an entry that is not
+  // AES at all carries the ordinary CRC.
+  if listed.ae != 2 {
+    let got = @moonzip.crc32(data[:])
+    guard got == listed.sum else {
+      raise @moonzip.Checksum(want=listed.sum, got~)
+    }
   }
   data
 }

@@ -7,6 +7,10 @@ import {
 }
 
 // Values
+pub fn aes_decrypt(BytesView, String, Int32) -> Bytes raise @moonzip.Refused
+
+pub fn aes_encrypt(BytesView, String, String, Int64, Int64, strength? : Int32) -> Bytes
+
 pub fn entry(BytesView, String, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Entry? raise @moonzip.Refused
 
 pub let level : Int32
@@ -15,7 +19,7 @@ pub fn names(BytesView) -> Array[String] raise @moonzip.Refused
 
 pub fn unzip(BytesView, limit? : Int32, codecs? : ArrayView[&Codec], password? : String) -> Array[Entry] raise @moonzip.Refused
 
-pub fn zip(ArrayView[Entry], level? : Int32, codecs? : ArrayView[&Codec], zip64? : Bool, descriptor? : Bool, password? : String) -> Bytes
+pub fn zip(ArrayView[Entry], level? : Int32, codecs? : ArrayView[&Codec], zip64? : Bool, descriptor? : Bool, password? : String, aes? : Int32, ae? : Int32) -> Bytes
 
 pub fn zipcrypt_decrypt(BytesView, String, Byte) -> Bytes raise @moonzip.Refused
 
@@ -52,7 +56,7 @@ pub fn Reader::next(Self, limit? : Int32, codecs? : ArrayView[&Codec], password?
 type Writer
 pub fn Writer::add(Self, Entry, codecs? : ArrayView[&Codec]) -> Bytes
 pub fn Writer::finish(Self) -> Bytes
-pub fn Writer::new(level? : Int32, zip64? : Bool, descriptor? : Bool, password? : String) -> Self
+pub fn Writer::new(level? : Int32, zip64? : Bool, descriptor? : Bool, password? : String, aes? : Int32, ae? : Int32) -> Self
 
 // Type aliases
 
