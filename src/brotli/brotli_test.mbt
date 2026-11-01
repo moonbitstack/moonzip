@@ -182,3 +182,36 @@ test "garbage is refused" {
     fail("no corruption of \{noise.length()} bytes was detected at all")
   }
 }
+
+///|
+/// Every quality round-trips, and the deeper search never loses on a body with
+/// long-range repeats: quality 11 must not be larger than quality 0, whatever it
+/// costs in time in between.
+test "quality trades ratio for time without breaking the stream" {
+  let parts : Array[Byte] = []
+  for i in 0..<400 {
+    for b in b"the quick brown fox jumps over the lazy dog. " {
+      parts.push(b)
+    }
+    parts.push((0x30 + i % 17).to_byte())
+  }
+  let data = Bytes::from_array(parts)
+  for q in 0..<12 {
+    let packed = @brotli.brotli(data[:], quality=q)
+    assert_eq(@brotli.unbrotli(packed[:]), data)
+  }
+  let fast = @brotli.brotli(data[:], quality=0).length()
+  let best = @brotli.brotli(data[:], quality=11).length()
+  assert_true(best <= fast)
+}
+
+///|
+/// The default quality is nine, so a call that names no quality produces exactly
+/// what `quality=9` produces — the bytes earlier versions wrote.
+test "the default quality is nine" {
+  let data = b"the quick brown fox jumps over the lazy dog, again and again and again."
+  assert_eq(
+    @brotli.brotli(data[:]),
+    @brotli.brotli(data[:], quality=9),
+  )
+}

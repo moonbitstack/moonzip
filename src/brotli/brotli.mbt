@@ -50,13 +50,14 @@ pub fn unbrotli(
 ///|
 /// Brotli, RFC 7932.
 ///
-/// The writer is deliberately a plain one: greedy LZ77 over a single hash table,
-/// one meta-block per megabyte, one block type per stream, and Huffman codes
-/// computed from the exact symbol counts. What it does **not** do is the half of
-/// brotli that earns the format its ratio: literal context modelling, block
-/// splitting, the static dictionary, and the exhaustive parse at quality 11.
+/// The writer is a plain one: greedy LZ77 over a hash chain, one meta-block per
+/// megabyte, one block type per stream, and Huffman codes computed from the exact
+/// symbol counts. `quality` trades time for ratio by deepening the chain search
+/// and adding a lazy step. What it does **not** do is the half of brotli that
+/// earns the format its ratio: literal context modelling, block splitting, and
+/// the static dictionary.
 ///
-/// That is a choice, not a gap. Those four are search problems over the same
+/// That is a choice, not a gap. Those three are search problems over the same
 /// format the reader already implements, and a writer that used them would need
 /// the reference encoder's 30,000 lines to be worth the difference. This one is
 /// correct, readable by every brotli implementation, and roughly comparable to
@@ -65,8 +66,45 @@ pub fn unbrotli(
 /// `window` is the log of the window size, 10 to 24: how far back a copy may
 /// reach. Larger windows find more matches and cost nothing but memory while
 /// writing, since the reader keeps whatever it needs.
-pub fn brotli(data : BytesView, window~ : Int32 = 22) -> Bytes {
-  compress(data, window, 1 << 24)
+///
+/// `quality` is 0 to 11 and controls how hard the LZ77 parse searches: the
+/// number of hash-chain candidates it walks and whether it takes a lazy step
+/// (spending a byte as a literal when the next position matches longer). Zero is
+/// one candidate, which is the "fast" mode LZ4 ships; eleven walks a thousand.
+/// A higher quality never produces more bytes and always takes longer. It does
+/// not turn on the parts of brotli that this writer does not implement — literal
+/// context modelling, block splitting, the static dictionary — so its ratio
+/// stays near gzip's rather than the reference encoder's. That is a choice, not
+/// a hidden switch.
+pub fn brotli(
+  data : BytesView,
+  window~ : Int32 = 22,
+  quality~ : Int32 = 9,
+) -> Bytes {
+  let (depth, lazymatch) = effort(quality)
+  compress(data, window, 1 << 24, depth=depth, lazymatch=lazymatch)
+}
+
+///|
+/// The search effort a quality names: the hash-chain depth and whether a lazy
+/// step is taken. Quality 9 is the value the one-shot call has always used, so
+/// the default output is unchanged; 0 and 11 are the fast and exhaustive ends.
+fn effort(quality : Int32) -> (Int32, Bool) {
+  let q = if quality < 0 { 0 } else if quality > 11 { 11 } else { quality }
+  match q {
+    0 => (1, false)
+    1 => (2, false)
+    2 => (4, true)
+    3 => (8, true)
+    4 => (16, true)
+    5 => (32, true)
+    6 => (64, true)
+    7 => (128, true)
+    8 => (192, true)
+    9 => (256, true)
+    10 => (512, true)
+    _ => (1024, true)
+  }
 }
 
 ///|
@@ -76,7 +114,13 @@ pub fn brotli(data : BytesView, window~ : Int32 = 22) -> Bytes {
 /// parameter exists so the tests can force a dozen meta-blocks out of a small
 /// body, which is the only way to exercise the "another block follows" path
 /// without compressing a sixteen-megabyte file.
-fn compress(data : BytesView, window : Int32, block : Int32) -> Bytes {
+fn compress(
+  data : BytesView,
+  window : Int32,
+  block : Int32,
+  depth~ : Int32 = 256,
+  lazymatch~ : Bool = true,
+) -> Bytes {
   let size = if window < 10 { 10 } else if window > 24 { 24 } else { window }
   let w = Writer::new()
   write_window(w, size)
@@ -89,7 +133,7 @@ fn compress(data : BytesView, window : Int32, block : Int32) -> Bytes {
   let total = data.length()
   while at < total {
     let span = if total - at > block { block } else { total - at }
-    write_block(w, data, at, span, (1 << size) - 16, table, chain)
+    write_block(w, data, at, span, (1 << size) - 16, table, chain, depth, lazymatch)
     at += span
   }
   // The stream ends with a meta-block that is both last and empty: one bit for

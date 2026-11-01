@@ -6,7 +6,7 @@ import {
 }
 
 // Values
-pub fn brotli(BytesView, window? : Int32) -> Bytes
+pub fn brotli(BytesView, window? : Int32, quality? : Int32) -> Bytes
 
 pub fn unbrotli(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
 

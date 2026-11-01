@@ -100,8 +100,10 @@ fn write_block(
   reach : Int32,
   table : FixedArray[Int32],
   chain : FixedArray[Int32],
+  depth : Int32,
+  lazymatch : Bool,
 ) -> Unit {
-  let steps = parse(data, at, span, reach, table, chain)
+  let steps = parse(data, at, span, reach, table, chain, depth, lazymatch)
   let literals = FixedArray::make(256, 0)
   let commands = FixedArray::make(704, 0)
   let offsets = FixedArray::make(64, 0)
@@ -213,12 +215,6 @@ fn nibble_count(length : Int32) -> Int32 {
 const CHAIN_SIZE : Int32 = 1 << 20
 
 ///|
-/// How many candidates to walk before settling for the best so far. 256 is where
-/// the ratio stops moving on periodic text — at 46-byte spacing, the long match
-/// lives 251 entries down the chain and 64 never reaches it.
-const CHAIN_DEPTH : Int32 = 256
-
-///|
 /// Stop walking once a match this long is in hand. Past it the extra bits a
 /// longer match saves are smaller than the time spent looking for one.
 const NICE_LENGTH : Int32 = 4096
@@ -236,6 +232,8 @@ fn parse(
   reach : Int32,
   table : FixedArray[Int32],
   chain : FixedArray[Int32],
+  depth : Int32,
+  lazymatch : Bool,
 ) -> Array[Step] {
   let steps : Array[Step] = []
   let end = at + span
@@ -252,6 +250,7 @@ fn parse(
       table[hash],
       chain,
       mask,
+      depth,
     )
     record(cursor, hash, table, chain, mask)
     if length < 4 {
@@ -260,10 +259,19 @@ fn parse(
     }
     // One step of lazy matching: if the next position matches two bytes longer,
     // this byte is better spent as a literal. It costs one extra probe and pays
-    // for itself on almost every text file.
-    if cursor + 5 <= end {
+    // for itself on almost every text file, so only the lowest qualities skip it.
+    if lazymatch && cursor + 5 <= end {
       let next = table[hash_at(data, cursor + 1)]
-      let (other, _) = search(data, cursor + 1, end, reach, next, chain, mask)
+      let (other, _) = search(
+        data,
+        cursor + 1,
+        end,
+        reach,
+        next,
+        chain,
+        mask,
+        depth,
+      )
       if other > length + 1 {
         cursor += 1
         continue
@@ -306,13 +314,14 @@ fn search(
   start : Int32,
   chain : FixedArray[Int32],
   mask : Int32,
+  depth : Int32,
 ) -> (Int32, Int32) {
   let limit = if end - pos > 65536 { 65536 } else { end - pos }
   let mut best = 0
   let mut distance = 0
   let mut candidate = start
-  let mut depth = 0
-  while candidate >= 0 && depth < CHAIN_DEPTH {
+  let mut seen = 0
+  while candidate >= 0 && seen < depth {
     let away = pos - candidate
     if away <= 0 || away > reach {
       break
@@ -333,7 +342,7 @@ fn search(
       }
     }
     candidate = chain[candidate & mask]
-    depth += 1
+    seen += 1
   }
   (best, distance)
 }
