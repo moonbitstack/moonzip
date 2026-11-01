@@ -447,11 +447,11 @@ the shape the feature exists for, and the reason the decision is priced rather t
 assumed either way.
 
 On this repository's own documentation — README, homepage and guide, about 102 KB
-— quality 9 gives 28,919 bytes and quality 11 gives 26,612, which is 8.0% smaller.
+— quality 9 gives 28,901 bytes and quality 11 gives 26,598, which is 8.0% smaller.
 The literal context model is 541 of those bytes, the stream splits 64, and the
-dictionary 1,679 — by far the largest, because prose is mostly words the dictionary
-already has. For scale, the reference encoder reaches 26,456 on the same bytes at
-quality 9 and 23,942 at quality 11, so this writer is 9% behind at nine and 11%
+dictionary 1,698 — by far the largest, because prose is mostly words the dictionary
+already has. For scale, the reference encoder reaches 26,443 on the same bytes at
+quality 9 and 23,938 at quality 11, so this writer is 9% behind at nine and 11%
 behind at eleven.
 
 Every new form is checked against the reference decoder, not just this one: a
