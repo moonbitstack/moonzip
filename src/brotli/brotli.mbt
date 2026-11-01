@@ -81,29 +81,38 @@ pub fn brotli(
   window~ : Int32 = 22,
   quality~ : Int32 = 9,
 ) -> Bytes {
-  let (depth, lazymatch, split, contexts) = effort(quality)
-  compress(data, window, 1 << 24, depth~, lazymatch~, split~, contexts~)
+  let (depth, lazymatch, split, contexts, dictionary) = effort(quality)
+  compress(
+    data,
+    window,
+    1 << 24,
+    depth~,
+    lazymatch~,
+    split~,
+    contexts~,
+    dictionary~,
+  )
 }
 
 ///|
 /// The search effort a quality names: the hash-chain depth and whether a lazy
 /// step is taken. Quality 9 is the value the one-shot call has always used, so
 /// the default output is unchanged; 0 and 11 are the fast and exhaustive ends.
-fn effort(quality : Int32) -> (Int32, Bool, Bool, Bool) {
+fn effort(quality : Int32) -> (Int32, Bool, Bool, Bool, Bool) {
   let q = if quality < 0 { 0 } else if quality > 11 { 11 } else { quality }
   match q {
-    0 => (1, false, false, false)
-    1 => (2, false, false, false)
-    2 => (4, true, false, false)
-    3 => (8, true, false, false)
-    4 => (16, true, false, false)
-    5 => (32, true, false, false)
-    6 => (64, true, false, false)
-    7 => (128, true, false, false)
-    8 => (192, true, false, false)
-    9 => (256, true, false, false)
-    10 => (512, true, true, true)
-    _ => (1024, true, true, true)
+    0 => (1, false, false, false, false)
+    1 => (2, false, false, false, false)
+    2 => (4, true, false, false, false)
+    3 => (8, true, false, false, false)
+    4 => (16, true, false, false, false)
+    5 => (32, true, false, false, false)
+    6 => (64, true, false, false, false)
+    7 => (128, true, false, false, false)
+    8 => (192, true, false, false, false)
+    9 => (256, true, false, false, false)
+    10 => (512, true, true, true, true)
+    _ => (1024, true, true, true, true)
   }
 }
 
@@ -122,6 +131,7 @@ fn compress(
   lazymatch~ : Bool = true,
   split~ : Bool = false,
   contexts~ : Bool = false,
+  dictionary~ : Bool = false,
 ) -> Bytes {
   let size = if window < 10 { 10 } else if window > 24 { 24 } else { window }
   let w = Writer::new()
@@ -147,6 +157,7 @@ fn compress(
       lazymatch,
       split,
       contexts,
+      dictionary,
     )
     at += span
   }

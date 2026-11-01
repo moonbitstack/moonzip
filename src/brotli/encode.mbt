@@ -68,6 +68,10 @@ priv struct Step {
   insert : Int32
   copy : Int32
   distance : Int32
+  /// The dictionary address this copy refers to, or -1 for an ordinary
+  /// back-reference. A dictionary copy's distance is not known until the writer
+  /// reaches it, because it is measured from how much output exists by then.
+  dict : Int32
 }
 
 ///|
@@ -104,8 +108,11 @@ fn write_block(
   lazymatch : Bool,
   split : Bool,
   contexts : Bool,
+  dictionary : Bool,
 ) -> Unit {
-  let steps = parse(data, at, span, reach, table, chain, depth, lazymatch)
+  let steps = parse(
+    data, at, span, reach, table, chain, depth, lazymatch, dictionary,
+  )
   let insert_offsets = offsets_of(insert_bits, 0)
   let copy_offsets = offsets_of(copy_bits, 2)
   let distance_codes = distances(0, 0, 64)
@@ -131,7 +138,9 @@ fn write_block(
     let (insert_code, _) = length_code(insert_offsets, step.insert)
     let (copy_code, _) = length_code(copy_offsets, step.copy)
     codes[index] = command_code(insert_code, copy_code)
-    let (dcode, _, _) = distance_codes.code(step.distance)
+    let (dcode, _, _) = distance_codes.code(
+      step_distance(step, cursor + step.insert, reach),
+    )
     offsets[dcode] += 1
     for i in 0..<step.insert {
       let byte = data[cursor + i].to_int()
@@ -320,7 +329,9 @@ fn write_block(
       }
     }
     cursor += step.insert
-    let (code, extra, value) = distance_codes.code(step.distance)
+    let (code, extra, value) = distance_codes.code(
+      step_distance(step, cursor, reach),
+    )
     distance_tree.write(w, code)
     w.put(value, extra)
     cursor += step.copy
@@ -446,6 +457,21 @@ fn best_cut(codes : FixedArray[Int32], total : Int32) -> Int32 {
 }
 
 ///|
+/// The distance a step's copy is written with.
+///
+/// A back-reference carries its own. A dictionary reference is measured from the
+/// bytes that exist when the copy happens, which is `(emitted, window)` with one
+/// added to tell the reader "past the window" and the address above that — so the
+/// same step has no fixed distance until the writer reaches it.
+fn step_distance(step : Step, emitted : Int32, reach : Int32) -> Int32 {
+  if step.dict < 0 {
+    return step.distance
+  }
+  let now = if emitted < reach { emitted } else { reach }
+  now + 1 + step.dict
+}
+
+///|
 /// Write a count of block types or context codes, the inverse of `read_count`.
 ///
 /// Zero is one bit. Everything else is a length prefix and a payload: one, then
@@ -545,10 +571,12 @@ fn parse(
   chain : FixedArray[Int32],
   depth : Int32,
   lazymatch : Bool,
+  dictionary : Bool,
 ) -> Array[Step] {
   let steps : Array[Step] = []
   let end = at + span
   let mask = CHAIN_SIZE - 1
+  let words = if dictionary { Some(DictIndex::build()) } else { None }
   let mut cursor = at
   let mut literal_start = at
   while cursor + 4 <= end {
@@ -564,6 +592,33 @@ fn parse(
       depth,
     )
     record(cursor, hash, table, chain, mask)
+    // A dictionary word is worth taking over a back-reference when it is longer,
+    // and it needs no lazy step: a back-reference a byte later cannot be longer
+    // than the longest word the format can name.
+    match words {
+      Some(index) => {
+        let (word_len, slot, transform) = index.find(data, cursor, end)
+        if word_len > length {
+          steps.push({
+            insert: cursor - literal_start,
+            copy: word_len,
+            distance: 0,
+            dict: DictIndex::address(word_len, slot, transform),
+          })
+          let stop = cursor + word_len
+          let mut fill = cursor + 1
+          while fill + 4 <= stop {
+            let h = hash_at(data, fill)
+            record(fill, h, table, chain, mask)
+            fill += 1
+          }
+          cursor = stop
+          literal_start = cursor
+          continue
+        }
+      }
+      None => ()
+    }
     if length < 4 {
       cursor += 1
       continue
@@ -588,7 +643,12 @@ fn parse(
         continue
       }
     }
-    steps.push({ insert: cursor - literal_start, copy: length, distance, })
+    steps.push({
+      insert: cursor - literal_start,
+      copy: length,
+      distance,
+      dict: -1,
+    })
     let stop = cursor + length
     let mut fill = cursor + 1
     while fill + 4 <= stop {

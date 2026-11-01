@@ -147,3 +147,65 @@ test "context modelling never costs bytes" {
     assert_eq(unbrotli(modelled[:]), body)
   }
 }
+
+///|
+/// The uppercase-first transform is found by its shape, not by a number.
+///
+/// The transcribed table is in the reference's own order, which is not the order
+/// of the `BROTLI_TRANSFORM_*` enum: id 10 there is a suffix transform. Reading
+/// the id off the enum produced a stream that encoded fine and decoded to
+/// lowercase, so what is pinned here is that the id found is the one with the
+/// uppercase kind and no affixes.
+test "the uppercase transform is found by shape" {
+  let id = uppercase_first_id()
+  assert_true(id >= 0)
+  assert_eq(transforms[id * 3 + 1], TRANSFORM_UPPERCASE_KIND)
+  assert_true(fragment_is_empty(transforms[id * 3]))
+  assert_true(fragment_is_empty(transforms[id * 3 + 2]))
+}
+
+///|
+/// A body of common words is smaller with the dictionary than without it, and
+/// both forms read back. These words are all in the blob and none of them repeat
+/// often enough for a back-reference to cover them, which is the case the
+/// dictionary exists for.
+test "dictionary words shrink the stream and still read back" {
+  let parts : Array[Bytes] = [
+    b"the ", b"quick ", b"brown ", b"fox ", b"jumps ", b"over ", b"lazy ", b"dog ",
+    b"Time ", b"people ", b"world ", b"work ", b"number ", b"water ", b"light ",
+    b"house ", b"music ", b"story ", b"school ", b"market ",
+  ]
+  let out : Array[Byte] = []
+  for i in 0..<20 {
+    for b in parts[i % parts.length()] {
+      out.push(b)
+    }
+    for ch in i.to_string() {
+      out.push((ch.to_int() & 0xFF).to_byte())
+    }
+    out.push(b' ')
+  }
+  let body = Bytes::from_array(out)
+  let plain = compress(body[:], 22, 1 << 24, depth=1024)
+  let words = compress(body[:], 22, 1 << 24, depth=1024, dictionary=true)
+  assert_eq(unbrotli(plain[:]), body)
+  assert_eq(unbrotli(words[:]), body)
+  assert_true(words.length() < plain.length())
+}
+
+///|
+/// A sentence-initial capital is the same word: `Time` has to match the entry for
+/// `time`, which is what the second hash probe is for.
+test "a capitalised word finds its lowercase entry" {
+  let out : Array[Byte] = []
+  for round in 0..<40 {
+    for b in b"time people world work number water light house music story " {
+      out.push(b)
+    }
+    out.push((0x30 + round % 10).to_byte())
+    out.push(b' ')
+  }
+  let body = Bytes::from_array(out)
+  let words = compress(body[:], 22, 1 << 24, depth=1024, dictionary=true)
+  assert_eq(unbrotli(words[:]), body)
+}

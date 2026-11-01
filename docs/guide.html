@@ -471,9 +471,10 @@ gunzip    -> 184000 bytes, matches: true</pre>
     <p class="sub" style="margin-top:22px">
       <code>brotli</code> takes a <code>quality</code> from 0 to 11 — higher is slower
       and never larger — and the row above is quality 9, the default. Quality 10 and
-      11 also model literals by context and split the command stream into two block
-      types &mdash; both searched, and both declined when the extra code would cost more
-      than it saves.
+      11 also model literals by context, split the command stream into two block types,
+      and code words the static dictionary knows as references rather than letters
+      &mdash; the first two searched, and both declined when the extra code would cost
+      more than it saves.
     </p>
 
     <p class="sub" style="margin-top:34px">

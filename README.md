@@ -390,17 +390,14 @@ move-to-front, the distance ring with all sixteen short codes, and every one of
 the 121 dictionary transforms. It reads streams at qualities 0 through 11 and windows 10 through 24, including
 quality 11 on English prose, which is where the dictionary does its work.
 
-**The writer is a plain LZ77 encoder that models literals.** A hash chain, and
-Huffman codes from exact counts. It does not use the dictionary. `quality` (0 to
-11, default 9) sets how far the chain is walked at each position and whether a
-lazy step is taken — more effort, never more bytes — and 0 is the single-candidate
-"fast" search LZ4 ships. On the body in the table below — 184,000 bytes of
-repetitive English — quality 9 reaches 682 bytes, ahead of gzip at 1,983 and zstd
-at 3,042, because one long match is worth more than everything the fancier models
-add.
-
-Quality 10 and 11 turn on the two pieces of brotli's machinery that pay on real
-files:
+**The writer is greedy LZ77 with three of brotli's four ideas.** A hash chain and
+Huffman codes from exact counts at every quality; at quality 10 and 11, literal
+contexts, a split command stream and the static dictionary. `quality` (0 to 11,
+default 9) is how much of that is on, and how far the chain is walked at each
+position: more effort, never more bytes, and 0 is the single-candidate "fast"
+search LZ4 ships. On the body in the table below — 184,000 bytes of repetitive
+English — quality 9 reaches 682 bytes, ahead of gzip at 1,983 and zstd at 3,042,
+because one long match is worth more than everything the fancier models add.
 
 - **Literal contexts.** The writer picks a context mode — `UTF8` for text, `LSB6`
   for binary — counts every literal in one of 64 sub-alphabets keyed by the two
@@ -411,28 +408,40 @@ files:
   contexts look alike comes out with one code and one bit of map.
 - **A split command stream.** The command stream may be cut in two, each half
   carrying its own prefix code.
+- **The static dictionary.** Words the format already knows are coded as a
+  dictionary reference — a distance past the window that names `(transform, word)`
+  — instead of their letters. The writer indexes the 13,504 words by their first
+  four bytes and probes each position twice: once as spelled, once with the first
+  letter lowercased, so a sentence-initial `Time` costs the same code as `time`.
+  Those are the two transforms it emits, identity and uppercase-first; the other
+  119 are suffix and prefix surgery, which change the word's length and so the
+  copy's.
 
 Both searches **price what they are choosing instead of estimating it**: the
 candidate code is written to a throwaway bit stream and counted. An estimate of
 "so many bits per used symbol" is wrong by enough to accept splits that then come
 out larger than the stream they were meant to shrink, which is exactly what
 happened here first — a body of short repeated phrases grew by six bytes at
-quality 11. With exact pricing, asking for either feature can no longer cost
-bytes, and a test pins that.
+quality 11. With exact pricing, asking for context modelling or a command split
+can no longer cost bytes, and a test pins that.
 
-On this repository's own documentation — README, homepage and guide, 98,659 bytes
-— quality 9 gives 27,685 and quality 11 gives 27,103, which is 2.1% smaller; the
-context model accounts for 517 of those bytes and the command split for 54. For
-scale, the reference encoder reaches 25,311 on the same bytes at quality 9 and
-22,915 at quality 11, so this writer is 9% behind at nine and 18% behind at
-eleven. What it still does not do is the static dictionary, and splitting the
-*literal* stream rather than the command stream; those two are most of the rest.
+On this repository's own documentation — README, homepage and guide, 99,446 bytes
+— quality 9 gives 28,014 and quality 11 gives 26,456, which is 5.6% smaller. The
+literal context model is 529 of those bytes, the command split 54, and the
+dictionary 960 — the largest of the three, because prose is mostly words the
+dictionary already has. For scale, the reference encoder reaches 25,617 on the
+same bytes at quality 9 and 23,217 at quality 11, so this writer is 9% behind at
+nine and 14% behind at eleven. What it still does not do is split the *literal*
+stream rather than the command stream, and emit the 119 affix transforms; those
+are most of the rest.
 
-Both new forms are checked against the reference decoder, not just this one: a
-quality-11 stream over a 98,659-byte body, whose header declares two command block
-types and a literal context map where quality 9 declares one block type and one
-code, decodes through `brotli 1.2.0` to the same bytes. Text and binary bodies were
-checked the same way, because the two take different context modes.
+All three new forms are checked against the reference decoder, not just this one:
+a quality-11 stream over a 99,446-byte body, whose header declares two command
+block types and a literal context map where quality 9 declares one block type and
+one code, decodes through `brotli 1.2.0` to the same bytes — including the
+dictionary references, which the reference reader resolves against its own copy of
+the blob. Text and binary bodies were checked the same way, because the two take
+different context modes.
 
 Four things about this format cost real time:
 
