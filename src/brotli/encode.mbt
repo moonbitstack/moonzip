@@ -66,7 +66,13 @@ fn Tree::write(self : Tree, w : Writer, symbol : Int32) -> Unit {
 /// One command: literals to copy verbatim, then a backward reference.
 priv struct Step {
   insert : Int32
+  /// The copy length the command carries. For a back-reference that is the number
+  /// of bytes copied; for a dictionary reference it is the *word's* length, which
+  /// is what selects the bucket, and the transform decides the rest.
   copy : Int32
+  /// How many bytes of input this copy consumes. The same as `copy` except for a
+  /// dictionary reference whose transform appends something.
+  taken : Int32
   distance : Int32
   /// The dictionary address this copy refers to, or -1 for an ordinary
   /// back-reference. A dictionary copy's distance is not known until the writer
@@ -119,7 +125,7 @@ fn write_block(
   // How much of the block is a trailing literal run, which is its own command.
   let mut tail = span
   for step in steps {
-    tail -= step.insert + step.copy
+    tail -= step.insert + step.taken
   }
   let mode = if contexts { choose_mode(data, at, span) } else { 0 }
   // The command stream, in order. It is built before the histograms because the
@@ -159,7 +165,7 @@ fn write_block(
         ctx_hist[context_id(mode, before, further) * 256 + byte] += 1
       }
     }
-    cursor += step.insert + step.copy
+    cursor += step.insert + step.taken
     index += 1
   }
   for i in 0..<tail {
@@ -334,7 +340,7 @@ fn write_block(
     )
     distance_tree.write(w, code)
     w.put(value, extra)
-    cursor += step.copy
+    cursor += step.taken
     index += 1
   }
   // The tail: literals up to the end of the meta-block, and a copy that is never
@@ -597,15 +603,16 @@ fn parse(
     // than the longest word the format can name.
     match words {
       Some(index) => {
-        let (word_len, slot, transform) = index.find(data, cursor, end)
-        if word_len > length {
+        let (word_len, taken, slot, transform) = index.find(data, cursor, end)
+        if taken > length {
           steps.push({
             insert: cursor - literal_start,
             copy: word_len,
+            taken,
             distance: 0,
             dict: DictIndex::address(word_len, slot, transform),
           })
-          let stop = cursor + word_len
+          let stop = cursor + taken
           let mut fill = cursor + 1
           while fill + 4 <= stop {
             let h = hash_at(data, fill)
@@ -646,6 +653,7 @@ fn parse(
     steps.push({
       insert: cursor - literal_start,
       copy: length,
+      taken: length,
       distance,
       dict: -1,
     })

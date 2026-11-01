@@ -149,19 +149,25 @@ test "context modelling never costs bytes" {
 }
 
 ///|
-/// The uppercase-first transform is found by its shape, not by a number.
-///
-/// The transcribed table is in the reference's own order, which is not the order
-/// of the `BROTLI_TRANSFORM_*` enum: id 10 there is a suffix transform. Reading
-/// the id off the enum produced a stream that encoded fine and decoded to
-/// lowercase, so what is pinned here is that the id found is the one with the
-/// uppercase kind and no affixes.
-test "the uppercase transform is found by shape" {
-  let id = uppercase_first_id()
-  assert_true(id >= 0)
-  assert_eq(transforms[id * 3 + 1], TRANSFORM_UPPERCASE_KIND)
-  assert_true(fragment_is_empty(transforms[id * 3]))
-  assert_true(fragment_is_empty(transforms[id * 3 + 2]))
+/// The affix table holds the transforms this writer can reach, and each one has to
+/// have an empty prefix — that is the property the index depends on, because the
+/// word then starts at the position being searched.
+test "every reachable transform has an empty prefix" {
+  let affixes = affix_table()
+  assert_true(affixes.length() > 40)
+  let mut plain_capital = false
+  let mut word_and_space = false
+  for affix in affixes {
+    assert_true(fragment_is_empty(transforms[affix.id * 3]))
+    if affix.capital && affix.suffix.length() == 0 {
+      plain_capital = true
+    }
+    if !affix.capital && affix.suffix.length() == 1 && affix.suffix[0] == b' ' {
+      word_and_space = true
+    }
+  }
+  assert_true(plain_capital)
+  assert_true(word_and_space)
 }
 
 ///|

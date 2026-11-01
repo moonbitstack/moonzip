@@ -413,9 +413,14 @@ because one long match is worth more than everything the fancier models add.
   — instead of their letters. The writer indexes the 13,504 words by their first
   four bytes and probes each position twice: once as spelled, once with the first
   letter lowercased, so a sentence-initial `Time` costs the same code as `time`.
-  Those are the two transforms it emits, identity and uppercase-first; the other
-  119 are suffix and prefix surgery, which change the word's length and so the
-  copy's.
+  It then tries the 54 transforms whose prefix is empty, which is what makes them
+  reachable by that probe: the word still starts at the position being searched
+  and only the bytes after it differ. That covers `word + " "`, `word + "."`,
+  `word + ", "`, `word + " the "` and the capitalised spelling of each — the
+  punctuation that follows most words in prose. A transform's affix is not part of
+  the copy length: the command carries the *word's* length, which selects the
+  bucket, and the transform decides how much comes out, so `time` with the
+  space-suffix transform is a copy of four bytes that produces five.
 
 Both searches **price what they are choosing instead of estimating it**: the
 candidate code is written to a throwaway bit stream and counted. An estimate of
@@ -425,15 +430,15 @@ happened here first — a body of short repeated phrases grew by six bytes at
 quality 11. With exact pricing, asking for context modelling or a command split
 can no longer cost bytes, and a test pins that.
 
-On this repository's own documentation — README, homepage and guide, 99,446 bytes
-— quality 9 gives 28,014 and quality 11 gives 26,456, which is 5.6% smaller. The
-literal context model is 529 of those bytes, the command split 54, and the
-dictionary 960 — the largest of the three, because prose is mostly words the
-dictionary already has. For scale, the reference encoder reaches 25,617 on the
-same bytes at quality 9 and 23,217 at quality 11, so this writer is 9% behind at
-nine and 14% behind at eleven. What it still does not do is split the *literal*
-stream rather than the command stream, and emit the 119 affix transforms; those
-are most of the rest.
+On this repository's own documentation — README, homepage and guide, 100,350 bytes
+— quality 9 gives 28,333 and quality 11 gives 26,269, which is 7.3% smaller. The
+literal context model is 531 of those bytes, the command split 60, and the
+dictionary 1,444 — by far the largest, because prose is mostly words the
+dictionary already has, and the affix transforms alone are 500 of them. For scale,
+the reference encoder reaches 25,925 on the same bytes at quality 9 and 23,515 at
+quality 11, so this writer is 9% behind at nine and 12% behind at eleven. What it
+still does not do is split the *literal* stream, and reach the transforms whose
+prefix is not empty; those are most of what is left.
 
 All three new forms are checked against the reference decoder, not just this one:
 a quality-11 stream over a 99,446-byte body, whose header declares two command

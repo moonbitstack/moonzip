@@ -19,25 +19,37 @@
 const DICT_HASH_BITS : Int32 = 16
 
 ///|
-/// The two transforms this writer emits.
+/// The transforms this writer emits: the ones whose prefix is empty.
 ///
-/// The format has 121, and the rest are suffix and prefix surgery — `-s`, `-ed`,
-/// `-ing`, `un-` — which change the word's length and so the copy's. Identity and
-/// "uppercase the first letter" are the two that leave the word the length the
-/// text spells it, which is what makes them cheap to search for: one hash probe
-/// each, and the sentence-initial `Time` costs the same code as `time`.
+/// The format has 121 and most of them are affix surgery. A transform with a
+/// prefix puts bytes *before* the word, so the text at the position no longer
+/// begins with the word — the index, which is built on the word's own first four
+/// bytes, cannot find it, and searching for it would need a second index over
+/// prefixed spellings. A transform with an empty prefix leaves the word at the
+/// front of the text, so the same probe finds it and the suffix is only a
+/// comparison of a few bytes after it. That is the cut this writer makes: fifty
+/// four transforms, including `word + " "`, `word + "."`, `word + ", "` and the
+/// capitalised spellings of each, which between them cover the punctuation that
+/// follows most words in prose.
 ///
-/// The uppercase id is **looked up, not assumed**. The transform table is a
-/// transcription of the reference's own ordering, which is not the ordering of
-/// the `BROTLI_TRANSFORM_*` enum that names them — id 10 in the table is a suffix
-/// transform, and the plain uppercase-first is id 9. Writing the constant the
-/// other way produced a stream that matched at encode time and decoded to
-/// lowercase, so the id is found by shape instead: the entry whose kind is
-/// "uppercase first" and whose prefix and suffix are both empty.
-const TRANSFORM_IDENTITY : Int32 = 0
+/// A transform's affix does not have to keep the word's length. The copy length
+/// in the command is the *word's* length — it selects the bucket — and the
+/// transform decides how many bytes actually come out. So `time` with the
+/// "word and a space" transform is a copy of four bytes that produces five.
+const TRANSFORM_IDENTITY_ID : Int32 = 0
 
 ///|
 const TRANSFORM_UPPERCASE_KIND : Int32 = 10
+
+///|
+
+///|
+/// One transform this writer can reach, with its suffix spelled out.
+priv struct Affix {
+  id : Int32
+  suffix : Bytes
+  capital : Bool
+}
 
 ///|
 /// Is this fragment id the empty fragment?
@@ -46,16 +58,37 @@ fn fragment_is_empty(id : Int32) -> Bool {
 }
 
 ///|
-/// The id of the plain uppercase-first transform, or -1 if the table has none.
-fn uppercase_first_id() -> Int32 {
+/// The bytes of one prefix/suffix fragment.
+fn fragment_bytes(id : Int32) -> Bytes {
+  let at = prefix_suffix_map[id]
+  let len = prefix_suffix[at].to_int()
+  let out : Array[Byte] = []
+  for i in 0..<len {
+    out.push(prefix_suffix[at + 1 + i])
+  }
+  Bytes::from_array(out)
+}
+
+///|
+/// The transforms whose prefix is empty and whose kind only appends a suffix.
+///
+/// Kind zero is the plain transform and kind ten uppercases the first character;
+/// the other kinds drop bytes from one end, which would make the word longer than
+/// the text it has to match and is left out here.
+fn affix_table() -> Array[Affix] {
+  let out : Array[Affix] = []
   for t in 0..<TRANSFORM_COUNT {
-    if transforms[t * 3 + 1] == TRANSFORM_UPPERCASE_KIND &&
-      fragment_is_empty(transforms[t * 3]) &&
-      fragment_is_empty(transforms[t * 3 + 2]) {
-      return t
+    let kind = transforms[t * 3 + 1]
+    if (kind == 0 || kind == TRANSFORM_UPPERCASE_KIND) &&
+      fragment_is_empty(transforms[t * 3]) {
+      out.push({
+        id: t,
+        suffix: fragment_bytes(transforms[t * 3 + 2]),
+        capital: kind == TRANSFORM_UPPERCASE_KIND,
+      })
     }
   }
-  -1
+  out
 }
 
 ///|
@@ -99,7 +132,7 @@ priv struct DictIndex {
   next : FixedArray[Int32]
   lens : FixedArray[Int32]
   slots : FixedArray[Int32]
-  capital : Int32
+  affixes : Array[Affix]
 }
 
 ///|
@@ -130,7 +163,7 @@ fn DictIndex::build() -> DictIndex {
       ordinal += 1
     }
   }
-  { heads, next, lens, slots, capital: uppercase_first_id(), }
+  { heads, next, lens, slots, affixes: affix_table(), }
 }
 
 ///|
@@ -159,46 +192,68 @@ fn dict_spells(
 }
 
 ///|
-/// The longest dictionary word starting at `at`, as `(length, slot, transform)`.
+/// Does `suffix` spell the input just past `at`?
+fn suffix_spells(data : BytesView, at : Int32, suffix : Bytes) -> Bool {
+  for i in 0..<suffix.length() {
+    if data[at + i] != suffix[i] {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// The longest dictionary reference starting at `at`, as
+/// `(word length, bytes produced, slot, transform)`.
 ///
-/// A length of zero means the dictionary has nothing here, which is the answer for
-/// most positions and costs one hash probe.
+/// Word length is what the command carries — it selects the bucket — and bytes
+/// produced is what the reader ends up appending, which is the same number only
+/// when the transform adds nothing. A word length of zero means the dictionary has
+/// nothing here, which is the answer for most positions and costs one hash probe.
 fn DictIndex::find(
   self : DictIndex,
   data : BytesView,
   at : Int32,
   end : Int32,
-) -> (Int32, Int32, Int32) {
+) -> (Int32, Int32, Int32, Int32) {
   let room = end - at
   if room < 4 {
-    return (0, 0, 0)
+    return (0, 0, 0, 0)
   }
   let first = data[at].to_int()
   let second = data[at + 1].to_int()
   let third = data[at + 2].to_int()
   let fourth = data[at + 3].to_int()
   let mut best = 0
+  let mut best_word = 0
   let mut best_slot = 0
-  let mut best_transform = TRANSFORM_IDENTITY
+  let mut best_transform = TRANSFORM_IDENTITY_ID
   let mut probe = 0
   while probe < 2 {
     let head = if probe == 0 { first } else { dict_lower(first) }
-    // The second probe is skipped when the table has no uppercase transform, and
-    // when the first byte has no case — then it would repeat the first probe.
-    if probe == 0 || (self.capital >= 0 && head != first) {
+    // The second probe is skipped when the first byte has no case — then it would
+    // repeat the first probe — and it only looks for the capitalised transforms.
+    if probe == 0 || head != first {
+      let capital = probe == 1
       let mut ordinal = self.heads[dict_key(head, second, third, fourth)]
       while ordinal >= 0 {
-        let len = self.lens[ordinal]
-        if len > best && len <= room {
+        let word_len = self.lens[ordinal]
+        // A longer transform on the word already found can only win if the word
+        // itself did, so a word shorter than the best is not worth checking.
+        if word_len <= room &&
+          dict_spells(data, at, word_len, self.slots[ordinal], capital) {
           let slot = self.slots[ordinal]
-          let capital = probe == 1
-          if dict_spells(data, at, len, slot, capital) {
-            best = len
-            best_slot = slot
-            best_transform = if capital {
-              self.capital
-            } else {
-              TRANSFORM_IDENTITY
+          for affix in self.affixes {
+            if affix.capital == capital {
+              let taken = word_len + affix.suffix.length()
+              if taken > best &&
+                taken <= room &&
+                suffix_spells(data, at + word_len, affix.suffix) {
+                best = taken
+                best_word = word_len
+                best_slot = slot
+                best_transform = affix.id
+              }
             }
           }
         }
@@ -207,7 +262,7 @@ fn DictIndex::find(
     }
     probe += 1
   }
-  (best, best_slot, best_transform)
+  (best_word, best, best_slot, best_transform)
 }
 
 ///|
