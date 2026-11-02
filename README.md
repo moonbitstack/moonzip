@@ -97,19 +97,30 @@ for part in chunks {
 for b in reader.finish() { out.push(b) }       // and the trailer is checked here
 ```
 
-The only state carried between calls is the window a back-reference can reach,
-plus a few bytes of running checksum — on both sides. `deflate`, `gzip`, `zlib`
-and `bzip2` have the pair; `bzip2`'s bound is one whole block, which is what its
-level sets, because the sort cannot begin until the block is complete. `zip` has
-a writer that hands back each member's bytes as it adds them and a reader that
-walks local headers from the front, which is the only way to read an archive that
-is still arriving.
+Every codec here has the pair, and what each one holds between calls is the
+format's own unit: one block for `deflate`, `lz4`, `zstd` and brotli's
+meta-block; one chunk for `snappy` and `xz`, which state their sizes; one block
+for `bzip2`, whose sort cannot begin until it is complete; and one dictionary
+window for `lzma`, which has no blocks at all and carries its range coder from
+token to token. Nothing holds the body, and nothing holds the compressed form of
+it.
 
-The block and frame formats — `lz4`, `snappy`, `zstd`, `brotli`, `lzma`, `xz` and
-`7z` — are one-shot on purpose. Their encoders pick their tables after seeing the
-whole input, so a pair that buffered everything and compressed at `finish` would
-be a streaming interface with none of the memory saving. They take a buffer and
-give one back; a caller holding a stream gathers it first.
+| Format | Unit held | Bound |
+|:--|:--|--:|
+| `deflate`, `gzip`, `zlib` | one block | 32 KiB |
+| `lz4` | one block | 64 KiB |
+| `snappy` | one chunk | 64 KiB |
+| `zstd` | one block | 64 KiB |
+| `xz` | one chunk, plus the dictionary | 1 MiB, plus the level's dictionary |
+| `bzip2` | one block | 100–900 KiB, by level |
+| `brotli` | one meta-block, plus the window | 1 MiB, plus the window |
+| `lzma` | the dictionary | 64 KiB – 8 MiB, by level |
+
+`zip` has a writer that hands back each member's bytes as it adds them and a
+reader that walks local headers from the front, which is the only way to read an
+archive that is still arriving. `7z` is the exception: its folder layout is
+written once, after the whole directory is known, so it takes a buffer and gives
+one back.
 
 A chunk boundary may fall inside a header field, inside a Huffman code, inside a
 stored block, or between a member's data and its data descriptor. The tests feed
@@ -182,10 +193,21 @@ and stored as salt, verification value, ciphertext and tag. Both headers carry
 method 99 and a `0x9901` extra field naming the real method and the strength. AE-1
 (the default) keeps the CRC; AE-2 zeroes it, because the tag already proves
 integrity. Reading catches a wrong password from the two-byte verification value
-and a tampered payload from the tag, both before a byte is returned. The test
-suite reproduces the published WinZip AES vector byte for byte, which is what
-makes an archive written here open in 7-Zip and WinZip and one written there open
-here.
+and a tampered payload from the tag, both before a byte is returned.
+
+Two details of this scheme only ever show up in somebody else's archive. The
+counter block is read as a little-endian integer, not as the big-endian one the
+standard counter mode uses — the two agree on the first block, so an archive of
+short members round-trips either way. And a directory member carries no payload,
+so an encrypted archive's directory has nothing to decrypt even though it is a
+member like any other.
+
+Both were found by `scripts/sevenzip_interop.py`, which writes all six encrypted
+shapes and both volume forms here, has 7-Zip extract every one, and pins the
+archives 7-Zip writes into the test suite: AES-128 and AES-256 in AE-2, a plain
+archive, and a volume set. The suite reproduces the published WinZip AES vector
+byte for byte as well, but that vector is thirteen bytes — one block — and the
+archive of a longer member is what settles the rest.
 
 **Volume splitting**: one archive carried in several files, `archive.z01`,
 `archive.z02`, … and finally `archive.zip`. A split archive is the same bytes cut
@@ -223,9 +245,11 @@ field it cannot agree with.
 
 Verified against libarchive (`bsdtar`) on the concatenated disks: a member
 recorded as disk 1, relative offset 3 is read at byte 131, which only works if the
-disk number is honoured — and it extracts byte for byte. Info-ZIP `unzip` reads
-the byte-range `split` form after rejoining, but says outright that it has no
-multi-part support, so it is not the tool for this one.
+disk number is honoured — and it extracts byte for byte. 7-Zip takes both forms
+when the pieces are named `archive.zip.001`, `.002`, … which is what
+`scripts/sevenzip_interop.py` checks for every kind of body. Info-ZIP `unzip`
+reads the byte-range `split` form after rejoining, but says outright that it has
+no multi-part support, so it is not the tool for this one.
 
 **A method this package does not implement** — bzip2 is 12, LZMA is 14 — is a
 `Codec` away rather than an edit here:
@@ -391,14 +415,15 @@ the 121 dictionary transforms. It reads streams at qualities 0 through 11 and wi
 quality 11 on English prose, which is where the dictionary does its work.
 
 **The writer is greedy LZ77 with brotli's three models bolted on.** A hash chain
-and Huffman codes from exact counts at every quality; at quality 10 and 11, literal
+and Huffman codes from exact counts at every position; from quality 9 up, literal
 contexts, block types for the command and literal streams, and the static
-dictionary. `quality` (0 to 11,
-default 9) is how much of that is on, and how far the chain is walked at each
-position: more effort, never more bytes, and 0 is the single-candidate "fast"
-search LZ4 ships. On the body in the table below — 184,000 bytes of repetitive
-English — quality 9 reaches 682 bytes, ahead of gzip at 1,983 and zstd at 3,042,
-because one long match is worth more than everything the fancier models add.
+dictionary. `quality` (0 to 11, default 9) is how much of that is on and how far
+the chain is walked: more effort, never more bytes, and 0 is the single-candidate
+"fast" search LZ4 ships. On the body in the table below — 184,000 bytes of
+repetitive English — quality 9 reaches 646 bytes, ahead of gzip at 1,983 and zstd
+at 3,042, because one long match is worth more than everything the fancier models
+add.
+
 
 - **Literal contexts.** The writer picks a context mode — `UTF8` for text, `LSB6`
   for binary — counts every literal in one of 64 sub-alphabets keyed by the two
@@ -447,13 +472,14 @@ apart — the same cut is worth 13%: 24,525 bytes to 21,261 on 40,000 bytes. Tha
 the shape the feature exists for, and the reason the decision is priced rather than
 assumed either way.
 
-On this repository's own documentation — README, homepage and guide, about 102 KB
-— quality 9 gives 28,944 bytes and quality 11 gives 26,636, which is 8.0% smaller.
-The literal context model is 541 of those bytes, the stream splits 64, and the
-dictionary 1,708 — by far the largest, because prose is mostly words the dictionary
-already has. For scale, the reference encoder reaches 26,474 on the same bytes at
-quality 9 and 23,982 at quality 11, so this writer is 9% behind at nine and 11%
-behind at eleven.
+On this repository's own documentation — README, homepage and guide, 102,655 bytes
+— quality 9 gives 26,892 and quality 11 gives 26,892: the model is what the size
+comes from, and a deeper chain finds almost nothing the 256-candidate one missed.
+The reference encoder reaches 26,744 on the same bytes at quality 9 and 24,207 at
+quality 11. So this writer is 0.6% behind at nine — the closest it has been — and
+11% behind at eleven, which is what an optimal parse is worth: the reference
+prices every candidate from a cost model and iterates, and this one takes the
+longest match the chain finds and one lazy step past it.
 
 Every new form is checked against the reference decoder, not just this one: a
 quality-11 stream over a 101 KB body, whose header declares two block types and a
@@ -501,7 +527,7 @@ tail, printed by `src/examples/stream`.
 | xz | 468 | 0.3% |
 | lzma, alone | 415 | 0.2% |
 | zstd | 3,042 | 1.7% |
-| brotli | 682 | 0.4% |
+| brotli | 646 | 0.4% |
 | — nothing | 184,000 | 100% |
 
 The three at the bottom are the block-sorting and range-coding end of the field:
@@ -516,27 +542,31 @@ finder, which loses the cross-block matches a repetitive body lives on.
 ## Throughput
 
 Sizes are one axis; the other is time. These are release-build numbers from
-`src/examples/throughput` on one machine, best of several runs, over a 1.5 MB body
-of words and numbers that compresses 3.4 to 1. A rate on a shared machine is a
-range rather than a constant, so read them as orders of magnitude.
+`src/examples/throughput` on one machine, the median of ten runs after a warm-up,
+over a 1.5 MB body of words and numbers that compresses 3.4 to 1. A rate on a
+shared machine is a range rather than a constant — this one moves by a factor of
+two between runs — so read them as orders of magnitude.
 
 | Codec | Write MB/s | Read MB/s |
 |:--|--:|--:|
-| `deflate` | 10 | 78 |
-| `gzip` | 9 | 65 |
-| `zlib` | 9 | 72 |
-| `zstd` | 21 | 52 |
-| `brotli` (quality 9) | 1.5 | 55 |
+| `deflate` | 8.8 | 89 |
+| `gzip` | 8.3 | 70 |
+| `zlib` | 8.4 | 79 |
+| `zstd` | 17 | 43 |
+| `brotli` (quality 9) | 1.4 | 50 |
 
 The same body through C zlib on the same machine — `zlib.compress(_, 6)` from
-Python — writes at about 18 MB/s and reads at 200–365 MB/s depending on how busy
-the machine is. The deflate writer is therefore within a factor of two of zlib.
-The reader is better than a fifth of zlib's decode rate when zlib measures 346, and
-nearer a third when it measures 200: about half again as fast as it was, and still
-short of the quarter this library set for itself.
+Python, median of ten — writes at about 16 MB/s and reads at 349. The deflate
+writer is therefore within a factor of two of zlib, and the reader is at a
+quarter of its decode rate: 85 to 92 MB/s against 349, measured in the same
+session.
 
-Four things earned that, and the fourth is the one that had been tried and
-abandoned. The Huffman decoder now looks nine bits ahead and names most codes with
+Five things earned that, and the last is the one that mattered most. The reader
+used to copy everything a push decoded into its history and then keep only the
+last 32 KiB of it, which on a body pushed once is a megabyte of copies that
+nothing could ever read — a back-reference reaches one window back. Keeping the
+tail instead of the whole made the difference between a fifth of zlib and a
+quarter. The Huffman decoder now looks nine bits ahead and names most codes with
 a single table lookup instead of walking them a bit at a time. A match is copied
 with its two per-byte branches — "is this byte in the kept history or the output",
 "has the limit been reached" — hoisted out of the loop, since the whole match

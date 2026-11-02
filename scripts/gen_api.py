@@ -880,7 +880,7 @@ def main():
 
     html = build_html(packages)
     out = os.path.join(root, "docs", "api.html")
-    with open(out, "w", encoding="utf-8") as fh:
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(html)
     print("wrote %s (%d packages)" % (out, len(packages)))
 

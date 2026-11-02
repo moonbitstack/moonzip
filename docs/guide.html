@@ -377,12 +377,12 @@ rejoined -> secret.txt, 14 bytes</pre>
       <code>finish</code> flushes the rest and checks the trailer.
     </p>
     <p class="sub" style="margin-top:-8px">
-      <code>deflate</code>, <code>gzip</code>, <code>zlib</code> and <code>bzip2</code>
-      carry the pair. The frame formats — <code>lz4</code>, <code>snappy</code>,
-      <code>zstd</code>, <code>brotli</code>, <code>lzma</code>, <code>xz</code> — are
-      one-shot on purpose: their tables are chosen only after the whole input is seen,
-      so a pair that buffered everything would save no memory. They take a buffer and
-      give one back.
+      Every codec carries the pair. What each one holds between calls is its own
+      unit — a block for <code>deflate</code>, <code>lz4</code>, <code>zstd</code> and
+      a brotli meta-block, a chunk for <code>snappy</code> and <code>xz</code>, a
+      block for <code>bzip2</code> — and <code>lzma</code>, which has no blocks at
+      all, holds the dictionary a copy can reach into and carries its range coder
+      from token to token.
     </p>
 
     <div class="pair">
