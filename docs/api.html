@@ -959,29 +959,26 @@ out.push(b)
 </pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">quality</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Self</code></p></div><div class="method"><h4 id="sym-Writer--brotli-push">push</h4><pre class="sig sig--method"><span class="tok-k">pub</span> <span class="tok-k">fn</span> <span class="tok-t">Writer</span>::push(<span class="tok-k">Self</span>, <span class="tok-t">BytesView</span>) -&gt; <span class="tok-k">Bytes</span>
 </pre><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div></div><div class="api-item"><h3 id="sym-brotli"><span class="ktag ktag--fn">fn</span>brotli</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> brotli(<span class="tok-t">BytesView</span>, window? : <span class="tok-k">Int32</span>, quality? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span>
 </pre><p>Brotli, RFC 7932.</p>
-<p>The writer is a plain one: greedy LZ77 over a hash chain, one meta-block per
-megabyte, one block type per stream, and Huffman codes computed from the exact
-symbol counts. <code>quality</code> trades time for ratio by deepening the chain search
-and adding a lazy step. What it does **not** do is the half of brotli that
-earns the format its ratio: literal context modelling, block splitting, and
-the static dictionary.</p>
-<p>That is a choice, not a gap. Those three are search problems over the same
-format the reader already implements, and a writer that used them would need
-the reference encoder's 30,000 lines to be worth the difference. This one is
-correct, readable by every brotli implementation, and roughly comparable to
-gzip on text.</p>
+<p>The writer does all of what earns the format its ratio: literal context
+modelling, block types for the literal and command streams, the static
+dictionary, and short distance codes. At quality 9 — the default — it is level
+with the reference encoder on this repository's own documentation, and
+somewhat ahead of it below that.</p>
 <p><code>window</code> is the log of the window size, 10 to 24: how far back a copy may
 reach. Larger windows find more matches and cost nothing but memory while
 writing, since the reader keeps whatever it needs.</p>
-<p><code>quality</code> is 0 to 11 and controls how hard the LZ77 parse searches: the
-number of hash-chain candidates it walks and whether it takes a lazy step
-(spending a byte as a literal when the next position matches longer). Zero is
-one candidate, which is the "fast" mode LZ4 ships; eleven walks a thousand.
-A higher quality never produces more bytes and always takes longer. It does
-not turn on the parts of brotli that this writer does not implement — literal
-context modelling, block splitting, the static dictionary — so its ratio
-stays near gzip's rather than the reference encoder's. That is a choice, not
-a hidden switch.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">quality</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-unbrotli"><span class="ktag ktag--fn">fn</span>unbrotli</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unbrotli(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
+<p><code>quality</code> is 0 to 11 and is how hard the writer looks, not which features it
+uses. Up to 8 it sets the number of hash-chain candidates walked and whether a
+lazy step is taken, which is the whole of a greedy parse. From 10 the parse is
+chosen rather than taken: an optimal walk over the block keeps the cheapest
+price of reaching every position, prices come from the codes the previous
+round produced, and each round's result is encoded to see which is genuinely
+smaller. That is seven times the work of quality 9 on a 35 KB body — 193 ms
+against 28 — and four and a half per cent off the output, because the parse is
+where the last of the ratio lives. Ten and eleven differ only in how many
+candidates the search walks, which on text changes almost nothing once the
+parse is chosen.</p>
+<p>A higher quality never produces more bytes and always takes longer.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">window</td><td class="mono">Int32</td><td>labelled, optional</td></tr><tr><td class="mono">quality</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code></p></div><div class="api-item"><h3 id="sym-unbrotli"><span class="ktag ktag--fn">fn</span>unbrotli</h3><pre class="sig"><span class="tok-k">pub</span> <span class="tok-k">fn</span> unbrotli(<span class="tok-t">BytesView</span>, limit? : <span class="tok-k">Int32</span>) -&gt; <span class="tok-k">Bytes</span> <span class="tok-k">raise</span> @moonzip.<span class="tok-t">Refused</span>
 </pre><p>Un-brotli a complete stream.</p><div class="code-head">parameters</div><table class="params"><tbody><tr><td class="mono">BytesView</td><td class="mono">—</td><td>positional</td></tr><tr><td class="mono">limit</td><td class="mono">Int32</td><td>labelled, optional</td></tr></tbody></table><p class="returns">returns <code>Bytes</code> · raises <code>@moonzip.Refused</code></p></div></div></section><footer>
 <span><b>moonzip</b> — Apache-2.0</span>
 <span>Leo Cheng</span>
