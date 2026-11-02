@@ -485,6 +485,13 @@ fn unpack(
 }
 
 ///|
+/// Whether a member's name is a directory's: the format's own convention, a
+/// trailing slash, since there is no mode bit for it.
+fn is_directory(name : String) -> Bool {
+  name.has_suffix("/")
+}
+
+///|
 /// The content one listed entry names.
 fn content(
   archive : BytesView,
@@ -506,6 +513,13 @@ fn content(
     raise @moonzip.Truncated(at=start)
   }
   let packed = archive[start:start + listed.packed.to_int()]
+  // A directory carries no payload, so there is nothing to decrypt even when the
+  // archive around it is encrypted: 7-Zip marks the directory's entry as a member
+  // and leaves its flags at zero, and a reader that reached for a cipher there
+  // would ask for twelve bytes that do not exist.
+  if listed.packed == 0L && listed.unpacked == 0L && is_directory(listed.name) {
+    return b""
+  }
   // With a data descriptor the local header cannot carry the checksum, and the
   // byte that proves the password right came from the time instead.
   let check = if (listed.flags & 0x0008) != 0 {
