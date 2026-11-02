@@ -101,6 +101,142 @@ fn write_window(w : BitWriter, size : Int32) -> Unit {
 }
 
 ///|
+/// The sixteen short distance codes, as the distances they name, given the ring of
+/// the last four the stream used.
+///
+/// A repeated distance is the most common thing in a compressed stream by a wide
+/// margin: the same word, the same tag, the same line. The format gives it a
+/// two-bit code and a name in a four-deep history, and a writer that always spells
+/// the distance out instead pays five to twenty bits for every one of them.
+let distance_delta : FixedArray[Int32] = [-1, 1, -2, 2, -3, 3]
+
+///|
+/// The short code that names `distance`, or -1 when none does.
+fn short_distance_code(
+  distance : Int32,
+  ring : FixedArray[Int32],
+  last : Int32,
+) -> Int32 {
+  let newest = ring[(last - 1) & 3]
+  let second = ring[(last - 2) & 3]
+  if distance == newest {
+    return 0
+  }
+  if distance == second {
+    return 1
+  }
+  if distance == ring[(last - 3) & 3] {
+    return 2
+  }
+  if distance == ring[(last - 4) & 3] {
+    return 3
+  }
+  // The six neighbours of each: a copy one byte to the left of the last one is
+  // still the same neighbourhood, and costs six bits instead of twenty.
+  for k in 0..<6 {
+    if distance == newest + distance_delta[k] && distance > 0 {
+      return 4 + k
+    }
+  }
+  for k in 0..<6 {
+    if distance == second + distance_delta[k] && distance > 0 {
+      return 10 + k
+    }
+  }
+  -1
+}
+
+///|
+/// Fold a copy's distance into the ring the way the decoder does.
+///
+/// A short code for the newest distance leaves the history where it was; every
+/// other copy moves its distance to the front; a dictionary reference is not a
+/// distance at all, and the ring never hears about it.
+fn remember_distance(
+  distance : Int32,
+  code : Int32,
+  dict : Bool,
+  ring : FixedArray[Int32],
+  last : Int32,
+) -> Int32 {
+  if dict || code == 0 {
+    return last
+  }
+  ring[last & 3] = distance
+  last + 1
+}
+
+///|
+/// Rewrite each copy's distance to one the stream has just used, when the bytes
+/// allow it.
+///
+/// The parse takes the longest match it can find, and the distance that match
+/// happens to sit at is whatever the chain gave — often a fresh one, which costs
+/// five to twenty bits to name. The same copy at a distance four entries back is
+/// a two-bit code, and on a body with a little repetition the bytes are there:
+/// the text two lines up and the text ten lines up are usually the same text.
+/// This is the trade the format is built around, and taking it costs four
+/// comparisons and a memcmp-free byte loop per copy.
+fn cheapen(data : BytesView, at : Int32, steps : Array[Step]) -> Array[Step] {
+  let ring = FixedArray::make(4, 0)
+  ring[0] = 16
+  ring[1] = 15
+  ring[2] = 11
+  ring[3] = 4
+  let mut last = 0
+  let mut cursor = at
+  let out : Array[Step] = []
+  for step in steps {
+    let start = cursor + step.insert
+    let mut chosen = step
+    if step.dict < 0 {
+      let newest = ring[(last - 1) & 3]
+      let second = ring[(last - 2) & 3]
+      // The newest distance first, then its neighbours, then the one before it:
+      // the cheapest code first, and the first one that reproduces the copy wins.
+      let candidates : Array[Int32] = [newest]
+      for delta in distance_delta {
+        candidates.push(newest + delta)
+      }
+      for delta in distance_delta {
+        candidates.push(second + delta)
+      }
+      candidates.push(second)
+      for candidate in candidates {
+        if candidate > 0 && candidate <= start && candidate != step.distance {
+          let mut same = true
+          for k in 0..<step.copy {
+            if data[start - candidate + k] != data[start + k] {
+              same = false
+              break
+            }
+          }
+          if same {
+            chosen = {
+              insert: step.insert,
+              copy: step.copy,
+              taken: step.taken,
+              distance: candidate,
+              dict: -1,
+            }
+            break
+          }
+        }
+      }
+    }
+    out.push(chosen)
+    last = if chosen.dict >= 0 {
+      last
+    } else {
+      ring[last & 3] = chosen.distance
+      last + 1
+    }
+    cursor = start + step.taken
+  }
+  out
+}
+
+///|
 /// One compressed meta-block over `data[at ..< at + span)`.
 fn write_block(
   w : BitWriter,
@@ -116,8 +252,10 @@ fn write_block(
   contexts : Bool,
   dictionary : Bool,
 ) -> Unit {
-  let steps = parse(
-    data, at, span, reach, table, chain, depth, lazymatch, dictionary,
+  let steps = cheapen(
+    data,
+    at,
+    parse(data, at, span, reach, table, chain, depth, lazymatch, dictionary),
   )
   let insert_offsets = offsets_of(insert_bits, 0)
   let copy_offsets = offsets_of(copy_bits, 2)
@@ -142,16 +280,28 @@ fn write_block(
   // that cut falls between two of these.
   let lit_pos : Array[Int32] = []
   let offsets = FixedArray::make(64, 0)
+  // The ring of recent distances, starting from the four the format starts with
+  // so that the first copy of a stream can also be a short code.
+  let ring = FixedArray::make(4, 0)
+  ring[0] = 16
+  ring[1] = 15
+  ring[2] = 11
+  ring[3] = 4
+  let mut last = 0
   let mut cursor = at
   let mut index = 0
   for step in steps {
     let (insert_code, _) = length_code(insert_offsets, step.insert)
     let (copy_code, _) = length_code(copy_offsets, step.copy)
     codes[index] = command_code(insert_code, copy_code)
-    let (dcode, _, _) = distance_codes.code(
-      step_distance(step, cursor + step.insert, reach),
-    )
+    let distance = step_distance(step, cursor + step.insert, reach)
+    let mut dcode = short_distance_code(distance, ring, last)
+    if dcode < 0 {
+      let (code, _, _) = distance_codes.code(distance)
+      dcode = code
+    }
     offsets[dcode] += 1
+    last = remember_distance(distance, dcode, step.dict >= 0, ring, last)
     for i in 0..<step.insert {
       let byte = data[cursor + i].to_int()
       literals[byte] += 1
@@ -306,6 +456,13 @@ fn write_block(
     write_prefix(w, command_tree1.widths, 704)
   }
   write_prefix(w, distance_tree.widths, 64)
+  // The ring starts again where the format starts it: the codes written have to
+  // be the ones the histogram counted, and that count began from this state.
+  ring[0] = 16
+  ring[1] = 15
+  ring[2] = 11
+  ring[3] = 4
+  last = 0
   cursor = at
   index = 0
   // How many literals have been written, which is what the literal block switch
@@ -345,11 +502,18 @@ fn write_block(
       lit_seen += 1
     }
     cursor += step.insert
-    let (code, extra, value) = distance_codes.code(
-      step_distance(step, cursor, reach),
-    )
+    let distance = step_distance(step, cursor, reach)
+    let mut code = short_distance_code(distance, ring, last)
+    if code < 0 {
+      let (explicit, _, _) = distance_codes.code(distance)
+      code = explicit
+    }
     distance_tree.write(w, code)
-    w.put(value, extra)
+    if code >= 16 {
+      let (_, extra, value) = distance_codes.code(distance)
+      w.put(value, extra)
+    }
+    last = remember_distance(distance, code, step.dict >= 0, ring, last)
     cursor += step.taken
     index += 1
   }
