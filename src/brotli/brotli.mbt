@@ -50,38 +50,32 @@ pub fn unbrotli(
 ///|
 /// Brotli, RFC 7932.
 ///
-/// The writer is a plain one: greedy LZ77 over a hash chain, one meta-block per
-/// megabyte, one block type per stream, and Huffman codes computed from the exact
-/// symbol counts. `quality` trades time for ratio by deepening the chain search
-/// and adding a lazy step. What it does **not** do is the half of brotli that
-/// earns the format its ratio: literal context modelling, block splitting, and
-/// the static dictionary.
-///
-/// That is a choice, not a gap. Those three are search problems over the same
-/// format the reader already implements, and a writer that used them would need
-/// the reference encoder's 30,000 lines to be worth the difference. This one is
-/// correct, readable by every brotli implementation, and roughly comparable to
-/// gzip on text.
+/// The writer does all of what earns the format its ratio: literal context
+/// modelling, block types for the literal and command streams, the static
+/// dictionary, and short distance codes. At quality 9 — the default — it is level
+/// with the reference encoder on this repository's own documentation, and
+/// somewhat ahead of it below that.
 ///
 /// `window` is the log of the window size, 10 to 24: how far back a copy may
 /// reach. Larger windows find more matches and cost nothing but memory while
 /// writing, since the reader keeps whatever it needs.
 ///
-/// `quality` is 0 to 11 and controls how hard the LZ77 parse searches: the
-/// number of hash-chain candidates it walks and whether it takes a lazy step
-/// (spending a byte as a literal when the next position matches longer). Zero is
-/// one candidate, which is the "fast" mode LZ4 ships; eleven walks a thousand.
-/// A higher quality never produces more bytes and always takes longer. It does
-/// not turn on the parts of brotli that this writer does not implement — literal
-/// context modelling, block splitting, the static dictionary — so its ratio
-/// stays near gzip's rather than the reference encoder's. That is a choice, not
-/// a hidden switch.
+/// `quality` is 0 to 11 and is how hard the writer looks, not which features it
+/// uses. Up to 8 it sets the number of hash-chain candidates walked and whether a
+/// lazy step is taken, which is the whole of a greedy parse. From 10 the parse is
+/// chosen rather than taken: an optimal walk over the block keeps the cheapest
+/// price of reaching every position, prices come from the codes the previous
+/// round produced, and each round's result is encoded to see which is genuinely
+/// smaller. That is four times the work of quality 9 and, on text, four and a
+/// half per cent off the output.
+///
+/// A higher quality never produces more bytes and always takes longer.
 pub fn brotli(
   data : BytesView,
   window~ : Int32 = 22,
   quality~ : Int32 = 9,
 ) -> Bytes {
-  let (depth, lazymatch, split, contexts, dictionary) = effort(quality)
+  let (depth, lazymatch, split, contexts, dictionary, optimal) = effort(quality)
   compress(
     data,
     window,
@@ -91,6 +85,7 @@ pub fn brotli(
     split~,
     contexts~,
     dictionary~,
+    optimal~,
   )
 }
 
@@ -98,24 +93,24 @@ pub fn brotli(
 /// The search effort a quality names: the hash-chain depth and whether a lazy
 /// step is taken. Quality 9 is the value the one-shot call has always used, so
 /// the default output is unchanged; 0 and 11 are the fast and exhaustive ends.
-fn effort(quality : Int32) -> (Int32, Bool, Bool, Bool, Bool) {
+fn effort(quality : Int32) -> (Int32, Bool, Bool, Bool, Bool, Bool) {
   let q = if quality < 0 { 0 } else if quality > 11 { 11 } else { quality }
   match q {
-    0 => (1, false, false, false, false)
-    1 => (2, false, false, false, false)
-    2 => (4, true, false, false, false)
-    3 => (8, true, false, false, false)
-    4 => (16, true, false, false, false)
-    5 => (32, true, false, false, false)
-    6 => (64, true, false, false, false)
-    7 => (128, true, false, false, false)
-    8 => (192, true, false, false, false)
+    0 => (1, false, false, false, false, false)
+    1 => (2, false, false, false, false, false)
+    2 => (4, true, false, false, false, false)
+    3 => (8, true, false, false, false, false)
+    4 => (16, true, false, false, false, false)
+    5 => (32, true, false, false, false, false)
+    6 => (64, true, false, false, false, false)
+    7 => (128, true, false, false, false, false)
+    8 => (192, true, false, false, false, false)
     // Nine is the default, and it models: literal contexts, split streams and the
     // dictionary are what brotli is for, and a default that leaves them off is a
     // default that loses to gzip on the one corpus every reader has — prose.
-    9 => (256, true, true, true, true)
-    10 => (512, true, true, true, true)
-    _ => (1024, true, true, true, true)
+    9 => (256, true, true, true, true, false)
+    10 => (512, true, true, true, true, true)
+    _ => (1024, true, true, true, true, true)
   }
 }
 
@@ -135,6 +130,7 @@ fn compress(
   split~ : Bool = false,
   contexts~ : Bool = false,
   dictionary~ : Bool = false,
+  optimal~ : Bool = false,
 ) -> Bytes {
   let size = if window < 10 { 10 } else if window > 24 { 24 } else { window }
   let w = BitWriter::new()
@@ -144,10 +140,20 @@ fn compress(
   // that shows up on exactly the periodic files a compressor is for.
   let table = FixedArray::make(1 << 16, -1)
   let chain = FixedArray::make(chain_size(), -1)
+  // The optimal search keeps a few dozen bytes of state per input byte, so its
+  // blocks are smaller than the format's sixteen megabytes. Splitting there costs
+  // one set of code descriptions per megabyte, which is what the reference encoder
+  // pays as well; the alternative is a caller handing in two megabytes and silently
+  // getting the greedy parse at a quality that promises otherwise.
+  let chunk = if optimal && block > OPTIMAL_LIMIT {
+    OPTIMAL_LIMIT
+  } else {
+    block
+  }
   let mut at = 0
   let total = data.length()
   while at < total {
-    let span = if total - at > block { block } else { total - at }
+    let span = if total - at > chunk { chunk } else { total - at }
     write_block(
       w,
       data,
@@ -161,6 +167,7 @@ fn compress(
       split,
       contexts,
       dictionary,
+      optimal~,
     )
     at += span
   }

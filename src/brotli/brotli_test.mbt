@@ -206,6 +206,26 @@ test "quality trades ratio for time without breaking the stream" {
 }
 
 ///|
+/// The optimal parse has to earn what it costs. On a body of prose, quality 11
+/// chooses its parse where quality 9 takes the longest match it finds, so eleven
+/// must come out smaller — and both must read back, because the search is free to
+/// emit commands the greedy pass never produces: implicit distances, insert runs
+/// of lengths it would not have chosen, copies that start mid-word.
+test "the optimal parse beats the greedy one" {
+  let body = sample(3)
+  let nine = @brotli.brotli(body[:], quality=9)
+  let eleven = @brotli.brotli(body[:], quality=11)
+  if @brotli.unbrotli(eleven[:]) != body {
+    fail("quality 11 wrote a stream that does not read back")
+  }
+  if eleven.length() >= nine.length() {
+    fail(
+      "quality 11 wrote \{eleven.length()} bytes against quality 9's \{nine.length()}",
+    )
+  }
+}
+
+///|
 /// The default quality is nine, so a call that names no quality produces exactly
 /// what `quality=9` produces — the bytes earlier versions wrote.
 test "the default quality is nine" {

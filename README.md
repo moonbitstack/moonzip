@@ -414,12 +414,15 @@ move-to-front, the distance ring with all sixteen short codes, and every one of
 the 121 dictionary transforms. It reads streams at qualities 0 through 11 and windows 10 through 24, including
 quality 11 on English prose, which is where the dictionary does its work.
 
-**The writer is greedy LZ77 with brotli's three models bolted on.** A hash chain
-and Huffman codes from exact counts at every position; from quality 9 up, literal
+**The writer is LZ77 with brotli's three models bolted on.** A hash chain and
+Huffman codes from exact counts at every position; from quality 9 up, literal
 contexts, block types for the command and literal streams, and the static
-dictionary. `quality` (0 to 11, default 9) is how much of that is on and how far
-the chain is walked: more effort, never more bytes, and 0 is the single-candidate
-"fast" search LZ4 ships. On the body in the table below — 184,000 bytes of
+dictionary. `quality` (0 to 11, default 9) is how hard it looks. Up to 8 that is
+the chain depth and a lazy step, which is the whole of a greedy parse, and 0 is
+the single-candidate "fast" search LZ4 ships. From 10 the parse is chosen rather
+than taken: a walk over the block keeps the cheapest price of reaching every
+position, priced from the codes the round before produced, and every round's
+result is encoded to see which is genuinely smaller. On the body in the table below — 184,000 bytes of
 repetitive English — quality 9 reaches 518 bytes, ahead of gzip at 1,983 and zstd
 at 3,042, because one long match is worth more than everything the fancier models
 add.
@@ -481,13 +484,27 @@ one keeps the ring the decoder keeps and takes the cheapest name for the distanc
 it has, and rewrites a copy's distance to the newest one whenever the bytes there
 are the same.
 
-On this repository's own documentation — README, homepage and guide, 104,955 bytes
-— quality 9 gives 27,404 against the reference encoder's 27,402 on the same
-bytes: two bytes, which is where a writer and its reference meet when the models
-match. Quality 11 gives 27,385 against the reference's 24,831, and that 10% is
-what an optimal parse is worth — the reference prices every candidate from a cost
-model and iterates; this one takes the longest match the chain finds and one lazy
-step past it.
+On this repository's own documentation — README, homepage and guide, 106,656
+bytes, measured as this commit leaves them — quality 9 gives 28,021 against the
+reference encoder's 27,948 on the same bytes: level, which is where a writer and
+its reference meet when the models match. Quality 11 gives 26,508 against the
+reference's 25,361.
+
+That 4.5% is what is left of the parse. The reference searches every match its
+hash chain holds, prices literals per position from a model it refits on each
+pass, and carries the ring of recent distances through the search itself. This
+one keeps six candidates per position, prices literals from the previous round's
+context codes, and prices a distance at what a *repeat* costs.
+
+The last of those is a choice worth naming. Charging each copy the width of the
+distance symbol it would need is the obvious model and it is the wrong one,
+because it is self-fulfilling: a round that priced fresh distances at ten bits
+finds a parse that uses fewer of them, the next round's distance tree is flatter
+and prices them higher still, and the search walks into a corner where almost
+nothing is a copy. On this corpus the exact model comes out three and a half per
+cent larger than the repeat-price one — same search, same corpus, one line of the
+price list apart. The reference encoder's own search dodges the same trap from the
+other side, pricing commands and distances at zero on its first pass.
 
 Every new form is checked against the reference decoder, not just this one: a
 quality-11 stream over a 101 KB body, whose header declares two block types and a

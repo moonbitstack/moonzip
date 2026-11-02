@@ -113,7 +113,9 @@ fn Writer::shrink(self : Writer) -> Unit {
 ///|
 /// Take one whole meta-block out of the front of what has arrived.
 fn Writer::metablock(self : Writer, span : Int32, last : Bool) -> Unit {
-  let (depth, lazymatch, split, contexts, dictionary) = effort(self.quality)
+  let (depth, lazymatch, split, contexts, dictionary, optimal) = effort(
+    self.quality,
+  )
   let view = Bytes::from_array(self.buf)[:]
   write_block(
     self.bits,
@@ -128,6 +130,7 @@ fn Writer::metablock(self : Writer, span : Int32, last : Bool) -> Unit {
     split,
     contexts,
     dictionary,
+    optimal~,
   )
   let _ = last
   self.at += span

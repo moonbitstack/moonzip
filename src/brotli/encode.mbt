@@ -167,6 +167,28 @@ fn remember_distance(
 }
 
 ///|
+/// The command symbol for a copy that reuses the last distance, or -1 when the
+/// pair has no such spelling.
+///
+/// The first two groups of the command alphabet mean "the distance is the one
+/// before": the decoder reads no distance symbol at all, which is why a repeated
+/// distance is the cheapest thing a writer can emit and an explicit short code 0
+/// is not. The spelling exists only for short inserts and short copies — past
+/// those the group holds other pairs — and when it does not exist the short code
+/// is still available.
+fn implicit_command_code(insert_code : Int32, copy_code : Int32) -> Int32 {
+  if insert_code >= 8 || copy_code >= 16 {
+    return -1
+  }
+  let bits64 = (copy_code & 7) | ((insert_code & 7) << 3)
+  if copy_code < 8 {
+    bits64
+  } else {
+    bits64 | 64
+  }
+}
+
+///|
 /// Rewrite each copy's distance to one the stream has just used, when the bytes
 /// allow it.
 ///
@@ -237,7 +259,14 @@ fn cheapen(data : BytesView, at : Int32, steps : Array[Step]) -> Array[Step] {
 }
 
 ///|
+
+///|
 /// One compressed meta-block over `data[at ..< at + span)`.
+///
+/// The parse is the only choice this function makes. Greedy matching is what the
+/// lower qualities do; the optimal search is asked for a second opinion when the
+/// block is small enough to hold its tables, and every parse it proposes is
+/// written out to a scratch writer to see which is genuinely smaller.
 fn write_block(
   w : BitWriter,
   data : BytesView,
@@ -251,21 +280,82 @@ fn write_block(
   split : Bool,
   contexts : Bool,
   dictionary : Bool,
+  optimal~ : Bool = false,
 ) -> Unit {
-  let steps = cheapen(
+  let mode = if contexts { choose_mode(data, at, span) } else { 0 }
+  let insert_offsets = offsets_of(insert_bits, 0)
+  let copy_offsets = offsets_of(copy_bits, 2)
+  let distance_codes = distances(0, 0, 64)
+  let greedy = cheapen(
     data,
     at,
     parse(data, at, span, reach, table, chain, depth, lazymatch, dictionary),
   )
-  let insert_offsets = offsets_of(insert_bits, 0)
-  let copy_offsets = offsets_of(copy_bits, 2)
-  let distance_codes = distances(0, 0, 64)
+  if !(optimal && span <= OPTIMAL_LIMIT) {
+    encode_block(
+      w, data, at, span, reach, greedy, mode, split, contexts, insert_offsets, copy_offsets,
+      distance_codes,
+    )
+    return
+  }
+  let mut best = greedy
+  let mut fewest = 1 << 30
+  // The greedy parse is on the list, so the search can only improve on it.
+  let tries : Array[Array[Step]] = [greedy]
+  for
+    candidate in optimal_rounds(
+      data, at, span, reach, depth, dictionary, mode, contexts, insert_offsets, copy_offsets,
+      distance_codes, greedy, 3,
+    ) {
+    tries.push(candidate)
+  }
+  for candidate in tries {
+    let scratch = BitWriter::new()
+    encode_block(
+      scratch, data, at, span, reach, candidate, mode, split, contexts, insert_offsets,
+      copy_offsets, distance_codes,
+    )
+    let bits = scratch.count()
+    if bits < fewest {
+      fewest = bits
+      best = candidate
+    }
+  }
+  encode_block(
+    w, data, at, span, reach, best, mode, split, contexts, insert_offsets, copy_offsets,
+    distance_codes,
+  )
+}
+
+///|
+/// One meta-block, from a parse that has already been decided.
+///
+/// The separation is what makes the optimal search affordable to be wrong: the
+/// search proposes parses and this writes each of them to a throwaway writer, so
+/// the one that goes into the stream is the one that actually came out smallest.
+/// A price model cannot see the code descriptions — the trees themselves are a
+/// kilobyte on a block of this size — and a search that trusts its own arithmetic
+/// over the encoder's output is a search that can lose to the parse it started
+/// from.
+fn encode_block(
+  w : BitWriter,
+  data : BytesView,
+  at : Int32,
+  span : Int32,
+  reach : Int32,
+  steps : Array[Step],
+  mode : Int32,
+  split : Bool,
+  contexts : Bool,
+  insert_offsets : FixedArray[Int32],
+  copy_offsets : FixedArray[Int32],
+  distance_codes : Distances,
+) -> Unit {
   // How much of the block is a trailing literal run, which is its own command.
   let mut tail = span
   for step in steps {
     tail -= step.insert + step.taken
   }
-  let mode = if contexts { choose_mode(data, at, span) } else { 0 }
   // The command stream, in order. It is built before the histograms because the
   // split search walks it twice: once to find where the cut pays, and once to
   // count each half.
@@ -293,14 +383,30 @@ fn write_block(
   for step in steps {
     let (insert_code, _) = length_code(insert_offsets, step.insert)
     let (copy_code, _) = length_code(copy_offsets, step.copy)
-    codes[index] = command_code(insert_code, copy_code)
     let distance = step_distance(step, cursor + step.insert, reach)
     let mut dcode = short_distance_code(distance, ring, last)
     if dcode < 0 {
       let (code, _, _) = distance_codes.code(distance)
       dcode = code
     }
-    offsets[dcode] += 1
+    // `dcode` of zero is "the distance before", and the command alphabet has a
+    // spelling of its own for that: the decoder takes the distance from its ring
+    // and reads nothing from the distance alphabet. Using it is worth more than a
+    // short code, because a short code still has to be *named* in the distance
+    // tree — a symbol that is nearly free but not free.
+    let implicit = if dcode == 0 {
+      implicit_command_code(insert_code, copy_code)
+    } else {
+      -1
+    }
+    codes[index] = if implicit >= 0 {
+      implicit
+    } else {
+      command_code(insert_code, copy_code)
+    }
+    if implicit < 0 {
+      offsets[dcode] += 1
+    }
     last = remember_distance(distance, dcode, step.dict >= 0, ring, last)
     for i in 0..<step.insert {
       let byte = data[cursor + i].to_int()
@@ -480,7 +586,25 @@ fn write_block(
     } else {
       command_tree0
     }
-    tree.write(w, command_code(insert_code, copy_code))
+    let distance = step_distance(step, cursor + step.insert, reach)
+    let mut code = short_distance_code(distance, ring, last)
+    if code < 0 {
+      let (explicit, _, _) = distance_codes.code(distance)
+      code = explicit
+    }
+    let implicit = if code == 0 {
+      implicit_command_code(insert_code, copy_code)
+    } else {
+      -1
+    }
+    tree.write(
+      w,
+      if implicit >= 0 {
+        implicit
+      } else {
+        command_code(insert_code, copy_code)
+      },
+    )
     w.put(insert_extra, insert_bits[insert_code])
     w.put(copy_extra, copy_bits[copy_code])
     for i in 0..<step.insert {
@@ -502,16 +626,12 @@ fn write_block(
       lit_seen += 1
     }
     cursor += step.insert
-    let distance = step_distance(step, cursor, reach)
-    let mut code = short_distance_code(distance, ring, last)
-    if code < 0 {
-      let (explicit, _, _) = distance_codes.code(distance)
-      code = explicit
-    }
-    distance_tree.write(w, code)
-    if code >= 16 {
-      let (_, extra, value) = distance_codes.code(distance)
-      w.put(value, extra)
+    if implicit < 0 {
+      distance_tree.write(w, code)
+      if code >= 16 {
+        let (_, extra, value) = distance_codes.code(distance)
+        w.put(value, extra)
+      }
     }
     last = remember_distance(distance, code, step.dict >= 0, ring, last)
     cursor += step.taken
