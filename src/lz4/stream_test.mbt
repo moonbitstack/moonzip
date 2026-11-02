@@ -107,3 +107,24 @@ test "a body of several blocks goes out a block at a time" {
   }
   assert_eq(read([Bytes::from_array(out)]), data)
 }
+
+///|
+/// A stream another implementation wrote, read a piece at a time. The writer's
+/// own output proves nothing about a reader that was written against it: what
+/// this pins is the chunking, the header and the checksums Python's encoder
+/// chooses, which are not the ones this package does.
+test "a stream another implementation wrote reads back" {
+  let packed = @base16.decode_lossy(
+    "04224d186840b400000000000000b739000000f01074686520717569636b2062726f776e20666f78206a756d7073206f766572201f00916c617a7920646f672e0e000f2d006b50646f672e2000000000",
+  )
+  let body : Array[Byte] = []
+  for _ in 0..<4 {
+    for b in "the quick brown fox jumps over the lazy dog. " {
+      body.push((b.to_int() % 256).to_byte())
+    }
+  }
+  let want = Bytes::from_array(body)
+  for seed in [1, 7, 99] {
+    assert_eq(read(pieces(packed, seed)), want)
+  }
+}

@@ -83,3 +83,24 @@ test "every level round-trips through the pair" {
     assert_eq(read(pieces(write(pieces(data, 3), level), 5)), data)
   }
 }
+
+///|
+/// A stream another implementation wrote, read a piece at a time. The writer's
+/// own output proves nothing about a reader that was written against it: what
+/// this pins is the chunking, the header and the checksums Python's encoder
+/// chooses, which are not the ones this package does.
+test "a stream another implementation wrote reads back" {
+  let packed = @base16.decode_lossy(
+    "5d00008000ffffffffffffffff003a1a08ce76c7e5e9d60734c3d10ebfce55e1aabde0e48f9801dd8de507549e65255f273a6a7eb4d3490389ce345f0d08b3ffffed748000",
+  )
+  let body : Array[Byte] = []
+  for _ in 0..<4 {
+    for b in "the quick brown fox jumps over the lazy dog. " {
+      body.push((b.to_int() % 256).to_byte())
+    }
+  }
+  let want = Bytes::from_array(body)
+  for seed in [1, 7, 99] {
+    assert_eq(read(pieces(packed, seed)), want)
+  }
+}

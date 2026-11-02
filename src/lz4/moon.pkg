@@ -10,4 +10,5 @@ import {
 
 import {
   "moonbitstack/moonzip/lz4",
+  "moonbitstack/moonbase/base16",
 } for "test"
