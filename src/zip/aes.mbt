@@ -133,15 +133,39 @@ fn aes_derive(
 
 ///|
 /// The initial counter block.
+
+///|
+/// WinZip's counter mode: the sixteen-byte block is a little-endian integer that
+/// starts at one and gains one per block.
 ///
-/// WinZip AES starts the counter at one, in the most significant byte of the
-/// sixteen-byte block; every block after increments the low byte. The same
-/// convention Go's `crypto/cipher` and 7-Zip use, which is what makes an archive
-/// written here open there.
-fn aes_nonce() -> Bytes {
-  let out : Array[Byte] = [b'\x01']
-  for _ in 1..<16 {
-    out.push(b'\x00')
+/// That is not SP 800-38A's CTR, which reads the block as a big-endian number and
+/// carries upward from the last byte. The two agree on the first block and on
+/// nothing after it, which is a difference that hides for as long as both ends of
+/// a stream are this library: every member of sixteen bytes or less reads back,
+/// and the first archive another tool wrote is where it shows.
+fn winzip_apply(key : BytesView, data : BytesView) -> Bytes {
+  let cipher = try @aes.Cipher::new(key) catch {
+    _ => abort("zip: an AES key of the wrong length")
+  } noraise {
+    c => c
+  }
+  let out : Array[Byte] = []
+  let mut at = 0
+  let mut counter = 0UL
+  while at < data.length() {
+    counter = counter + 1UL
+    let block : Array[Byte] = []
+    let mut left = counter
+    for _ in 0..<16 {
+      block.push((left & 0xFFUL).to_int().to_byte())
+      left = left / 256UL
+    }
+    let stream = cipher.encrypt(Bytes::from_array(block)[:])
+    let take = if data.length() - at < 16 { data.length() - at } else { 16 }
+    for i in 0..<take {
+      out.push(data[at + i] ^ stream[i])
+    }
+    at += take
   }
   Bytes::from_array(out)
 }
@@ -167,17 +191,7 @@ pub fn aes_encrypt(
   let klen = aes_key_len(s)
   let enc = material[0:klen]
   let auth = material[klen:klen + klen]
-  let cipher = try @aes.Cipher::new(enc) catch {
-    _ => abort("zip: an AES key of the wrong length")
-  } noraise {
-    c => c
-  }
-  let ctr = try @mode.Ctr::new(cipher, aes_nonce()[:]) catch {
-    _ => abort("zip: the AES counter was refused")
-  } noraise {
-    m => m
-  }
-  let cipher_text = ctr.apply(data)
+  let cipher_text = winzip_apply(enc, data)
   let mac = @hmac.Hmac::new(auth, sha1_hash)
   mac.write(cipher_text[:])
   let tag = mac.finish()
@@ -252,17 +266,7 @@ pub fn aes_decrypt(
       what="the AES authentication tag does not match",
     )
   }
-  let cipher = try @aes.Cipher::new(enc) catch {
-    _ => abort("zip: an AES key of the wrong length")
-  } noraise {
-    c => c
-  }
-  let ctr = try @mode.Ctr::new(cipher, aes_nonce()[:]) catch {
-    _ => abort("zip: the AES counter was refused")
-  } noraise {
-    m => m
-  }
-  ctr.apply(cipher_text)
+  winzip_apply(enc, cipher_text)
 }
 
 ///|
