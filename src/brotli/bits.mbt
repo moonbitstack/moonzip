@@ -4,10 +4,10 @@
 ///|
 /// A cursor over the bits of a stream, least significant bit of each byte first.
 ///
-/// Brotli has no alignment rule, no padding between meta-blocks and no way to
-/// resume in the middle of one, so unlike the other packages here a reader can
-/// be a plain cursor over a buffer that is already complete. That is what this
-/// is: no push, no retained window, no "needs more input".
+/// Brotli has no alignment rule and no padding between meta-blocks, so a reader
+/// cannot resume mid-block: it reads a meta-block whole or says it needs more
+/// input. The cursor is over whatever bytes are in hand, which is why it is a
+/// plain offset rather than a push interface.
 priv struct Bits {
   data : BytesView
   /// Bit offset of the next bit to read, counted from the start of `data`.
@@ -117,26 +117,26 @@ fn Bits::bytes(self : Bits, n : Int32) -> Bytes raise @moonzip.Refused {
 /// Brotli has no trailing padding to write: the stream ends on the last bit of
 /// the last meta-block header, so `finish` flushes whatever is pending and does
 /// not round up.
-priv struct Writer {
-  out : Array[Byte]
+priv struct BitWriter {
+  mut out : Array[Byte]
   mut acc : Int32
   mut nbits : Int32
 }
 
 ///|
-fn Writer::new() -> Writer {
+fn BitWriter::new() -> BitWriter {
   { out: [], acc: 0, nbits: 0, }
 }
 
 ///|
 /// How many bits have been written, for a caller that wants to price something
 /// before it commits to writing it.
-fn Writer::count(self : Writer) -> Int32 {
+fn BitWriter::count(self : BitWriter) -> Int32 {
   self.out.length() * 8 + self.nbits
 }
 
 ///|
-fn Writer::put(self : Writer, value : Int32, n : Int32) -> Unit {
+fn BitWriter::put(self : BitWriter, value : Int32, n : Int32) -> Unit {
   if n == 0 {
     return
   }
@@ -158,7 +158,17 @@ fn Writer::put(self : Writer, value : Int32, n : Int32) -> Unit {
 }
 
 ///|
-fn Writer::finish(self : Writer) -> Bytes {
+/// Take the whole bytes written so far and keep the bits that have not filled
+/// one. Meta-blocks are not byte-aligned, so draining is what turns a bit stream
+/// into bytes a caller can send.
+fn BitWriter::drain(self : BitWriter) -> Array[Byte] {
+  let made = self.out
+  self.out = []
+  made
+}
+
+///|
+fn BitWriter::finish(self : BitWriter) -> Bytes {
   if self.nbits > 0 {
     self.out.push(self.acc.to_byte())
     self.acc = 0

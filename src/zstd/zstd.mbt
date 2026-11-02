@@ -38,7 +38,7 @@ let match_extra : FixedArray[Int32] = [
 /// The three repeat offsets and the four decoding tables are the whole of the
 /// cross-block state in zstd, which is why a block cannot be decoded alone.
 priv struct Frame {
-  out : Array[Byte]
+  mut out : Array[Byte]
   window : Int32
   repeats : Array[Int32]
   mut literals_tree : Tree?

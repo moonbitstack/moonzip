@@ -361,7 +361,7 @@ fn canonical_codes(widths : FixedArray[Int32], n : Int32) -> FixedArray[Int32] {
 /// Brotli reads the first bit of a code first, and the first bit of a canonical
 /// code is its most significant one, so the bits go out high to low.
 fn write_code(
-  w : Writer,
+  w : BitWriter,
   widths : FixedArray[Int32],
   codes : FixedArray[Int32],
   symbol : Int32,

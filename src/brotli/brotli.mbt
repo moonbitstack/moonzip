@@ -134,7 +134,7 @@ fn compress(
   dictionary~ : Bool = false,
 ) -> Bytes {
   let size = if window < 10 { 10 } else if window > 24 { 24 } else { window }
-  let w = Writer::new()
+  let w = BitWriter::new()
   write_window(w, size)
   // One hash table and one chain for the whole stream: matches may reach back
   // into an earlier meta-block, and forgetting that at every megabyte is a loss

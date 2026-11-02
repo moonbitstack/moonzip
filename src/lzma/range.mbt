@@ -31,6 +31,20 @@ fn RangeDecoder::new(data : BytesView) -> RangeDecoder raise @moonzip.Refused {
 }
 
 ///|
+/// A decoder that picks up where a previous one stopped, on the same stream and
+/// with the same values in its registers. What makes this possible is that the
+/// coder's state between tokens is three numbers — the range, the code and how
+/// far it has read — and nothing else.
+fn RangeDecoder::continuing(
+  data : BytesView,
+  at : Int32,
+  range : UInt32,
+  code : UInt32,
+) -> RangeDecoder {
+  { data, at, range, code, }
+}
+
+///|
 /// The next byte, or zero past the end. A range decoder is allowed to read a few
 /// bytes past what it needs; the encoder flushes five zeros for exactly that.
 fn RangeDecoder::next(self : RangeDecoder) -> UInt32 {

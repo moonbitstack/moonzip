@@ -43,7 +43,7 @@ pub fn decoded_dict(code : Int32) -> Int32 {
 /// How much uncompressed data one LZMA2 chunk carries. The chunk header holds the
 /// size in twenty-one bits, so two megabytes is the ceiling; a megabyte keeps the
 /// loss from a bad chunk small.
-let chunk_size : Int32 = 1 << 20
+pub let chunk_size : Int32 = 1 << 20
 
 ///|
 /// LZMA2: LZMA in chunks, each with its own range coder, and a control byte that

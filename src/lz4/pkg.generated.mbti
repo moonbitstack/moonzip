@@ -19,6 +19,28 @@ pub fn xxh32(BytesView, seed? : UInt32) -> UInt32
 // Errors
 
 // Types and methods
+type Reader
+pub fn Reader::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Reader::new(checksum? : Bool, limit? : Int32) -> Self
+pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
+
+type Writer
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32) -> Self
+pub fn Writer::push(Self, BytesView) -> Bytes
+
+pub(all) struct Xxh32 {
+  seed : UInt32
+  mut v1 : UInt32
+  mut v2 : UInt32
+  mut v3 : UInt32
+  mut v4 : UInt32
+  mut total : Int32
+  mut held : Array[Byte]
+}
+pub fn Xxh32::finish(Self) -> UInt32
+pub fn Xxh32::new(seed? : UInt32) -> Self
+pub fn Xxh32::push(Self, BytesView) -> Unit
 
 // Type aliases
 

@@ -55,7 +55,7 @@ fn Tree::of(freq : FixedArray[Int32], limit : Int32) -> Tree {
 }
 
 ///|
-fn Tree::write(self : Tree, w : Writer, symbol : Int32) -> Unit {
+fn Tree::write(self : Tree, w : BitWriter, symbol : Int32) -> Unit {
   if self.single {
     return
   }
@@ -83,7 +83,7 @@ priv struct Step {
 ///|
 /// The window size, in the format's own encoding: 16 is a single zero bit, 17 is
 /// three zeros, and everything else is a small offset from 8 or 17.
-fn write_window(w : Writer, size : Int32) -> Unit {
+fn write_window(w : BitWriter, size : Int32) -> Unit {
   if size == 16 {
     w.put(0, 1)
   } else if size >= 18 {
@@ -103,7 +103,7 @@ fn write_window(w : Writer, size : Int32) -> Unit {
 ///|
 /// One compressed meta-block over `data[at ..< at + span)`.
 fn write_block(
-  w : Writer,
+  w : BitWriter,
   data : BytesView,
   at : Int32,
   span : Int32,
@@ -413,7 +413,7 @@ fn literal_context(data : BytesView, at : Int32, mode : Int32) -> Int32 {
 /// that it accepts splits which then come out larger than the stream they were
 /// supposed to shrink.
 fn tree_bits(widths : FixedArray[Int32], alphabet : Int32) -> Int32 {
-  let w = Writer::new()
+  let w = BitWriter::new()
   write_prefix(w, widths, alphabet)
   w.count()
 }
@@ -630,7 +630,7 @@ fn step_distance(step : Step, emitted : Int32, reach : Int32) -> Int32 {
 /// Zero is one bit. Everything else is a length prefix and a payload: one, then
 /// three bits naming how many payload bits follow. The payload is the value with
 /// its top bit removed, so each width covers a doubling.
-fn write_count(w : Writer, value : Int32) -> Unit {
+fn write_count(w : BitWriter, value : Int32) -> Unit {
   if value == 0 {
     w.put(0, 1)
     return
@@ -665,7 +665,7 @@ fn block_len_code(len : Int32) -> (Int32, Int32, Int32) {
 /// Write a block length under a size tree that may be a single symbol, in which
 /// case the reader assigns it width zero and the code itself costs no bits.
 fn emit_block_len(
-  w : Writer,
+  w : BitWriter,
   widths : FixedArray[Int32],
   codes : FixedArray[Int32],
   single : Bool,

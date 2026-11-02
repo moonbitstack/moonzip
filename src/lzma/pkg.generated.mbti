@@ -6,6 +6,8 @@ import {
 }
 
 // Values
+pub let chunk_size : Int32
+
 pub fn decoded_dict(Int32) -> Int32
 
 pub fn dict_code(Int32) -> Int32
@@ -36,6 +38,17 @@ pub fn Decoder::output(Self) -> Bytes
 pub fn Decoder::properties(Self, Int32) -> Unit raise @moonzip.Refused
 pub fn Decoder::reset(Self) -> Unit
 pub fn Decoder::since(Self, Int32) -> Bytes
+pub fn Decoder::trim(Self, Int32) -> Unit
+
+type Reader
+pub fn Reader::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Reader::new(limit? : Int32) -> Self
+pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
+
+type Writer
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32) -> Self
+pub fn Writer::push(Self, BytesView) -> Bytes
 
 // Type aliases
 

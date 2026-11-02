@@ -9,7 +9,13 @@ struct Decoder {
   mut model : Model
   mut state : Int32
   reps : FixedArray[Int32]
-  out : Array[Byte]
+  mut out : Array[Byte]
+  /// How many bytes have been dropped from the front of `out`. A dictionary of a
+  /// fixed size is all a back-reference can reach, so a reader that keeps more
+  /// than one is holding bytes it can never ask for — but the positions the
+  /// format codes are the ones the whole output would have had, so the count has
+  /// to travel with the buffer.
+  mut base : Int32
   limit : Int32
 }
 
@@ -21,6 +27,7 @@ pub fn Decoder::new(limit? : Int32) -> Decoder {
     state: 0,
     reps: FixedArray::make(4, 0),
     out: [],
+    base: 0,
     limit: match limit {
       Some(n) => n
       None => -1
@@ -37,7 +44,31 @@ pub fn Decoder::output(self : Decoder) -> Bytes {
 ///|
 /// How much has been produced — the mark a caller keeps before a chunk.
 pub fn Decoder::length(self : Decoder) -> Int32 {
-  self.out.length()
+  self.base + self.out.length()
+}
+
+///|
+/// The position the next byte will land at, which is what the format's models
+/// are indexed by: a context position, not an offset into the buffer.
+fn Decoder::position(self : Decoder) -> Int32 {
+  self.base + self.out.length()
+}
+
+///|
+/// Drop everything a back-reference can no longer reach, keeping `keep` bytes.
+/// This is what makes a streaming reader's memory the dictionary rather than the
+/// stream.
+pub fn Decoder::trim(self : Decoder, keep : Int32) -> Unit {
+  let over = self.out.length() - keep
+  if over <= 0 {
+    return
+  }
+  let rest : Array[Byte] = []
+  for i in over..<self.out.length() {
+    rest.push(self.out[i])
+  }
+  self.out = rest
+  self.base += over
 }
 
 ///|
@@ -45,8 +76,9 @@ pub fn Decoder::length(self : Decoder) -> Int32 {
 /// without copying the whole dictionary.
 pub fn Decoder::since(self : Decoder, mark : Int32) -> Bytes {
   let made : Array[Byte] = []
-  for i in mark..<self.out.length() {
-    made.push(self.out[i])
+  let from = if mark < self.base { self.base } else { mark }
+  for i in from..<self.position() {
+    made.push(self.out[i - self.base])
   }
   Bytes::from_array(made)
 }
@@ -131,6 +163,89 @@ pub fn properties_of(lc : Int32, lp : Int32, pb : Int32) -> Int32 {
 }
 
 ///|
+/// Decode one token, appending what it produces. Returns true at the end marker.
+///
+/// A token is the unit a streaming reader can stop at: the range coder may be
+/// left with bytes in hand and picked up again, but a model that has been updated
+/// halfway through a token cannot be put back, so the boundary has to be here.
+fn Decoder::step(
+  self : Decoder,
+  rc : RangeDecoder,
+) -> Bool raise @moonzip.Refused {
+  let m = self.model
+  let pos = self.position()
+  let pos_state = pos & m.pos_mask()
+  let state = self.state
+  if rc.bit(m.is_match, (state << 4) + pos_state) == 0 {
+    let prev = if pos > 0 {
+      self.out[self.out.length() - 1].to_int()
+    } else {
+      0
+    }
+    let match_byte = if state >= 7 && pos > self.reps[0] {
+      self.out[self.out.length() - self.reps[0] - 1].to_int()
+    } else {
+      0
+    }
+    self.out.push(decode_literal(rc, m, state, pos, prev, match_byte))
+    self.state = if state < 4 {
+      0
+    } else if state < 10 {
+      state - 3
+    } else {
+      state - 6
+    }
+    return false
+  }
+  if rc.bit(m.is_rep, state) == 1 {
+    let mut distance = self.reps[0]
+    if rc.bit(m.is_rep_g0, state) == 0 {
+      if rc.bit(m.is_rep0_long, (state << 4) + pos_state) == 0 {
+        // A "short rep": one byte, at the distance of the last match. It is one
+        // bit instead of a length and a distance, which is worth having for the
+        // repeated line endings every text file is full of.
+        guard pos > distance else { raise @moonzip.Distance(at=pos) }
+        self.out.push(self.out[self.out.length() - distance - 1])
+        self.state = if state < 7 { 9 } else { 11 }
+        return false
+      }
+    } else {
+      if rc.bit(m.is_rep_g1, state) == 0 {
+        distance = self.reps[1]
+      } else {
+        if rc.bit(m.is_rep_g2, state) == 0 {
+          distance = self.reps[2]
+        } else {
+          distance = self.reps[3]
+          self.reps[3] = self.reps[2]
+        }
+        self.reps[2] = self.reps[1]
+      }
+      self.reps[1] = self.reps[0]
+    }
+    self.reps[0] = distance
+    let len = decode_length(rc, m.rep_len, pos_state) + 2
+    self.state = if state < 7 { 8 } else { 11 }
+    self.copy(distance, len)
+    return false
+  }
+  self.reps[3] = self.reps[2]
+  self.reps[2] = self.reps[1]
+  self.reps[1] = self.reps[0]
+  let len = decode_length(rc, m.len, pos_state) + 2
+  self.state = if state < 7 { 7 } else { 10 }
+  let len_state = if len - 2 < 4 { len - 2 } else { 3 }
+  let distance = distance_of(rc, m, len_state)
+  if distance == 0xFFFFFFFF {
+    // The end marker: a match at a distance no dictionary can have.
+    return true
+  }
+  self.reps[0] = distance
+  self.copy(distance, len)
+  false
+}
+
+///|
 /// Decode until `want` bytes have been produced, or — when `want` is negative —
 /// until the end marker. Returns the number produced by this call.
 ///
@@ -143,80 +258,16 @@ pub fn Decoder::feed(
   want : Int32,
 ) -> Int32 raise @moonzip.Refused {
   let rc = RangeDecoder::new(packed)
-  let from = self.out.length()
-  let target = if want >= 0 { from + want } else { -1 }
-  while target < 0 || self.out.length() < target {
-    if self.limit >= 0 && self.out.length() >= self.limit {
+  let from = self.position()
+  while want < 0 || self.position() - from < want {
+    if self.limit >= 0 && self.position() >= self.limit {
       raise @moonzip.TooBig(limit=self.limit)
     }
-    let m = self.model
-    let pos = self.out.length()
-    let pos_state = pos & m.pos_mask()
-    let state = self.state
-    if rc.bit(m.is_match, (state << 4) + pos_state) == 0 {
-      let prev = if pos > 0 { self.out[pos - 1].to_int() } else { 0 }
-      let match_byte = if state >= 7 && pos > self.reps[0] {
-        self.out[pos - self.reps[0] - 1].to_int()
-      } else {
-        0
-      }
-      self.out.push(decode_literal(rc, m, state, pos, prev, match_byte))
-      self.state = if state < 4 {
-        0
-      } else if state < 10 {
-        state - 3
-      } else {
-        state - 6
-      }
-      continue
+    if self.step(rc) {
+      break
     }
-    if rc.bit(m.is_rep, state) == 1 {
-      let mut distance = self.reps[0]
-      if rc.bit(m.is_rep_g0, state) == 0 {
-        if rc.bit(m.is_rep0_long, (state << 4) + pos_state) == 0 {
-          // A "short rep": one byte, at the distance of the last match. It is
-          // one bit instead of a length and a distance, which is worth having for
-          // the repeated line endings every text file is full of.
-          guard pos > distance else { raise @moonzip.Distance(at=pos) }
-          self.out.push(self.out[pos - distance - 1])
-          self.state = if state < 7 { 9 } else { 11 }
-          continue
-        }
-      } else {
-        if rc.bit(m.is_rep_g1, state) == 0 {
-          distance = self.reps[1]
-        } else {
-          if rc.bit(m.is_rep_g2, state) == 0 {
-            distance = self.reps[2]
-          } else {
-            distance = self.reps[3]
-            self.reps[3] = self.reps[2]
-          }
-          self.reps[2] = self.reps[1]
-        }
-        self.reps[1] = self.reps[0]
-      }
-      self.reps[0] = distance
-      let len = decode_length(rc, m.rep_len, pos_state) + 2
-      self.state = if state < 7 { 8 } else { 11 }
-      self.copy(distance, len)
-      continue
-    }
-    self.reps[3] = self.reps[2]
-    self.reps[2] = self.reps[1]
-    self.reps[1] = self.reps[0]
-    let len = decode_length(rc, m.len, pos_state) + 2
-    self.state = if state < 7 { 7 } else { 10 }
-    let len_state = if len - 2 < 4 { len - 2 } else { 3 }
-    let distance = distance_of(rc, m, len_state)
-    if distance == 0xFFFFFFFF {
-      // The end marker: a match at a distance no dictionary can have.
-      return self.out.length() - from
-    }
-    self.reps[0] = distance
-    self.copy(distance, len)
   }
-  self.out.length() - from
+  self.position() - from
 }
 
 ///|
@@ -228,8 +279,8 @@ fn Decoder::copy(
   distance : Int32,
   len : Int32,
 ) -> Unit raise @moonzip.Refused {
-  guard distance < self.out.length() else {
-    raise @moonzip.Distance(at=self.out.length())
+  guard distance < self.position() else {
+    raise @moonzip.Distance(at=self.position())
   }
   let start = self.out.length() - distance - 1
   for i in 0..<len {

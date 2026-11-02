@@ -18,6 +18,54 @@ import lzma
 import zipfile
 import zlib
 
+# The four that are not in the standard library. They are optional so that the
+# script still checks everything else on a machine that has nothing installed.
+try:
+    import brotli
+except ImportError:
+    brotli = None
+try:
+    import lz4.frame as lz4_frame
+except ImportError:
+    lz4_frame = None
+try:
+    import snappy
+except ImportError:
+    snappy = None
+try:
+    import zstandard
+except ImportError:
+    zstandard = None
+
+
+def decompress_stream(inner, blob):
+    """The decompressor for a stream the example's writer produced."""
+    if inner == "gzip":
+        return zlib.decompressobj(31).decompress(blob)
+    if inner == "zlib":
+        return zlib.decompressobj(15).decompress(blob)
+    if inner == "lz4":
+        if lz4_frame is None:
+            return None
+        return lz4_frame.decompress(blob)
+    if inner == "snappy":
+        if snappy is None:
+            return None
+        return snappy.StreamDecompressor().decompress(blob)
+    if inner == "zstd":
+        if zstandard is None:
+            return None
+        return zstandard.ZstdDecompressor().decompressobj().decompress(blob)
+    if inner == "brotli":
+        if brotli is None:
+            return None
+        return brotli.decompress(blob)
+    if inner == "lzma":
+        return lzma.decompress(blob, format=lzma.FORMAT_ALONE)
+    if inner == "xz":
+        return lzma.decompress(blob, format=lzma.FORMAT_XZ)
+    return None
+
 
 def sample(kind):
     """The same seven inputs src/examples/vectors builds, byte for byte."""
@@ -43,6 +91,7 @@ def sample(kind):
 def main():
     checked = 0
     failed = 0
+    skipped = 0
     for line in sys.stdin:
         parts = line.split()
         if not parts:
@@ -51,6 +100,11 @@ def main():
         if form == "zip":
             kind, variant = int(parts[1]), int(parts[2])
             blob = bytes.fromhex(parts[3])
+            if variant >= 5:
+                # WinZip AES: `zipfile` reads neither the method nor the extra
+                # field, so these six shapes are `scripts/sevenzip_interop.py`'s.
+                skipped += 1
+                continue
             password = b"moonzip" if variant == 3 else None
             try:
                 with zipfile.ZipFile(io.BytesIO(blob)) as archive:
@@ -70,13 +124,16 @@ def main():
                 print("FAIL zip {} variant={}: {}".format(kind, variant, why))
                 continue
         if form == "stream":
-            # Written a piece at a time, so the block boundaries are not the
-            # ones a single call would produce — still one stream, still has to
-            # read back.
+            # Written a piece at a time, so the boundaries are not the ones a
+            # single call would produce — still one stream, still has to read
+            # back, and through somebody else's decoder rather than our own.
             inner, kind = parts[1], int(parts[2])
             step, blob = parts[3], bytes.fromhex(parts[4])
             want = sample(kind)
-            got = zlib.decompressobj(31 if inner == "gzip" else 15).decompress(blob)
+            got = decompress_stream(inner, blob)
+            if got is None:
+                skipped += 1
+                continue
             what = "stream {} {} step={}".format(inner, kind, step)
         else:
             kind, rest = int(parts[1]), parts[2:]
@@ -116,7 +173,7 @@ def main():
                 if got[i] != want[i]:
                     print("  first difference at byte {}".format(i))
                     break
-    print("{} streams checked, {} failed".format(checked, failed))
+    print("{} streams checked, {} failed, {} skipped".format(checked, failed, skipped))
     return 1 if failed else 0
 
 

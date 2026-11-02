@@ -99,6 +99,132 @@ fn stream_zlib(body : Bytes, step : Int32) -> Bytes {
 }
 
 ///|
+/// The six writers that take the body a piece at a time, each fed in chunks of
+/// `step` bytes, so an external checker sees the streams they produce rather than
+/// the ones a single call would.
+fn stream_lz4(body : Bytes, step : Int32) -> Bytes {
+  let writer = @lz4.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+fn stream_snappy(body : Bytes, step : Int32) -> Bytes {
+  let writer = @snappy.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+fn stream_zstd(body : Bytes, step : Int32) -> Bytes {
+  let writer = @zstd.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+fn stream_brotli(body : Bytes, step : Int32) -> Bytes {
+  let writer = @brotli.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+fn stream_lzma(body : Bytes, step : Int32) -> Bytes {
+  let writer = @lzma.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+fn stream_xz(body : Bytes, step : Int32) -> Bytes {
+  let writer = @xz.Writer::new()
+  let out : Array[Byte] = []
+  let mut at = 0
+  while at < body.length() {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    for b in writer.push(body[at:stop]) {
+      out.push(b)
+    }
+    at = stop
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+/// An archive cut into volumes, in each of the two shapes the package writes:
+/// byte ranges that must be rejoined, and the older form with disk numbers.
+fn volumes(body : Bytes, spanned : Bool) -> Array[Bytes] {
+  let entries = [
+    @zip.Entry::new("first.txt", body),
+    @zip.Entry::new("dir/second.txt", b"the second member"),
+  ]
+  if spanned {
+    @zip.zip_spanned(entries[:], 4096, password="moonzip", aes=256)
+  } else {
+    @zip.zip_split(entries[:], 4096, password="moonzip", aes=256)
+  }
+}
+
+///|
 /// One archive per shape the writer can produce, so an external reader sees
 /// each of them.
 fn archive(body : Bytes, variant : Int32) -> Bytes {
@@ -112,7 +238,13 @@ fn archive(body : Bytes, variant : Int32) -> Bytes {
     2 => @zip.zip(entries[:], descriptor=true)
     3 => @zip.zip(entries[:], password="moonzip")
     4 => @zip.zip(entries[:], zip64=true, descriptor=true)
-    _ => @zip.zip(entries[:])
+    // The six encrypted shapes: three key lengths, and AE-1 against AE-2.
+    5 => @zip.zip(entries[:], password="moonzip", aes=128)
+    6 => @zip.zip(entries[:], password="moonzip", aes=192)
+    7 => @zip.zip(entries[:], password="moonzip", aes=256)
+    8 => @zip.zip(entries[:], password="moonzip", aes=128, ae=2)
+    9 => @zip.zip(entries[:], password="moonzip", aes=192, ae=2)
+    _ => @zip.zip(entries[:], password="moonzip", aes=256, ae=2)
   }
 }
 
@@ -169,8 +301,35 @@ fn main {
       println(
         "stream zlib \{kind} \{step} \{@base16.encode(stream_zlib(body, step)[:])}",
       )
+      println(
+        "stream lz4 \{kind} \{step} \{@base16.encode(stream_lz4(body, step)[:])}",
+      )
+      println(
+        "stream snappy \{kind} \{step} \{@base16.encode(stream_snappy(body, step)[:])}",
+      )
+      println(
+        "stream zstd \{kind} \{step} \{@base16.encode(stream_zstd(body, step)[:])}",
+      )
+      println(
+        "stream brotli \{kind} \{step} \{@base16.encode(stream_brotli(body, step)[:])}",
+      )
+      println(
+        "stream lzma \{kind} \{step} \{@base16.encode(stream_lzma(body, step)[:])}",
+      )
+      println(
+        "stream xz \{kind} \{step} \{@base16.encode(stream_xz(body, step)[:])}",
+      )
     }
-    for variant in 0..<5 {
+    for (name, spanned) in [("split", false), ("spanned", true)] {
+      // A volume set is written one file at a time, so the external reader sees
+      // the pieces rather than the archive they make.
+      let mut line = "zipvol \{kind} \{name}"
+      for piece in volumes(body, spanned) {
+        line = line + " " + @base16.encode(piece[:])
+      }
+      println(line)
+    }
+    for variant in 0..<11 {
       println(
         "zip \{kind} \{variant} \{@base16.encode(archive(body, variant)[:])}",
       )

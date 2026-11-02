@@ -23,6 +23,23 @@ pub fn Check::equal(Self, Self) -> Bool
 pub fn Check::not_equal(Self, Self) -> Bool
 pub fn Check::to_repr(Self) -> @debug.Repr
 
+pub(all) struct Crc64 {
+  mut sum : UInt64
+}
+pub fn Crc64::finish(Self) -> UInt64
+pub fn Crc64::new() -> Self
+pub fn Crc64::push(Self, BytesView) -> Unit
+
+type Reader
+pub fn Reader::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Reader::new(limit? : Int32) -> Self
+pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
+
+type Writer
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32, check? : Check) -> Self
+pub fn Writer::push(Self, BytesView) -> Bytes
+
 // Type aliases
 
 // Traits

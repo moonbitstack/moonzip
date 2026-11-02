@@ -47,8 +47,22 @@ fn size_of(check : Int32) -> Int32 {
 /// complemented. Sixty-four bits because a block can be a gigabyte, and a
 /// thirty-two-bit checksum over that much is a weaker claim than the format
 /// wanted to make.
-fn crc64(data : BytesView) -> UInt64 {
-  let mut crc = 0xFFFFFFFFFFFFFFFFUL
+///
+/// The struct is the same checksum kept as a state, which is what a block that is
+/// still arriving needs: the check covers the bytes before they were compressed,
+/// and a streaming writer never holds them all.
+pub(all) struct Crc64 {
+  mut sum : UInt64
+}
+
+///|
+pub fn Crc64::new() -> Crc64 {
+  { sum: 0xFFFFFFFFFFFFFFFFUL, }
+}
+
+///|
+pub fn Crc64::push(self : Crc64, data : BytesView) -> Unit {
+  let mut crc = self.sum
   for i in 0..<data.length() {
     crc = crc ^ data[i].to_uint().to_uint64()
     for _ in 0..<8 {
@@ -59,7 +73,19 @@ fn crc64(data : BytesView) -> UInt64 {
       }
     }
   }
-  crc ^ 0xFFFFFFFFFFFFFFFFUL
+  self.sum = crc
+}
+
+///|
+pub fn Crc64::finish(self : Crc64) -> UInt64 {
+  self.sum ^ 0xFFFFFFFFFFFFFFFFUL
+}
+
+///|
+fn crc64(data : BytesView) -> UInt64 {
+  let sum = Crc64::new()
+  sum.push(data)
+  sum.finish()
 }
 
 ///|

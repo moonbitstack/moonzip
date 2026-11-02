@@ -32,7 +32,7 @@ test "prefix codes survive their own round trip" {
   for n in [2, 3, 4, 5, 6, 7, 8, 16, 26, 64, 256, 704] {
     let freq = skewed_freq(n, n * 7919)
     let tree = Tree::of(freq, 15)
-    let w = Writer::new()
+    let w = BitWriter::new()
     write_prefix(w, tree.widths, n)
     let order = FixedArray::make(400, 0)
     let mut state = n
@@ -68,7 +68,7 @@ test "degenerate alphabets survive their own round trip" {
   let one = FixedArray::make(256, 0)
   one[200] = 5
   let tree = Tree::of(one, 15)
-  let w = Writer::new()
+  let w = BitWriter::new()
   write_prefix(w, tree.widths, 256)
   tree.write(w, 200)
   let bits = Bits::new(w.finish())
@@ -81,7 +81,7 @@ test "degenerate alphabets survive their own round trip" {
 
   let flat = FixedArray::make(256, 1)
   let tree = Tree::of(flat, 15)
-  let w2 = Writer::new()
+  let w2 = BitWriter::new()
   write_prefix(w2, tree.widths, 256)
   for i in 0..<256 {
     tree.write(w2, i)

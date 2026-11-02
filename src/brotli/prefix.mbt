@@ -244,7 +244,7 @@ fn read_complex(
 /// Write one prefix code. The caller has already decided the widths; this picks
 /// the cheaper of the two spellings and writes it.
 fn write_prefix(
-  w : Writer,
+  w : BitWriter,
   widths : FixedArray[Int32],
   alphabet_max : Int32,
 ) -> Unit {
@@ -267,7 +267,7 @@ fn write_prefix(
 
 ///|
 fn write_simple(
-  w : Writer,
+  w : BitWriter,
   widths : FixedArray[Int32],
   n : Int32,
   alphabet_max : Int32,
@@ -381,7 +381,7 @@ fn push_zeros(
 }
 
 ///|
-fn write_complex(w : Writer, widths : FixedArray[Int32], n : Int32) -> Unit {
+fn write_complex(w : BitWriter, widths : FixedArray[Int32], n : Int32) -> Unit {
   let symbols : Array[Int32] = []
   let extras : Array[Int32] = []
   let mut previous = 8

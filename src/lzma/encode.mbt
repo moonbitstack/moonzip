@@ -13,7 +13,7 @@ priv struct RangeEncoder {
   mut range : UInt32
   mut cache : Byte
   mut cache_size : Int32
-  out : Array[Byte]
+  mut out : Array[Byte]
 }
 
 ///|
@@ -109,6 +109,16 @@ fn RangeEncoder::direct(
       self.shift_low()
     }
   }
+}
+
+///|
+/// Take the bytes the coder has finished with. A byte it has emitted can never
+/// be changed again — the carry it was holding has been added — so a writer that
+/// hands these over as it goes is streaming rather than buffering.
+fn RangeEncoder::drain(self : RangeEncoder) -> Array[Byte] {
+  let made = self.out
+  self.out = []
+  made
 }
 
 ///|
@@ -216,6 +226,11 @@ fn encode_literal(
 }
 
 ///|
+/// The longest copy the format can name: 273 bytes, which is the top of the
+/// length coder's last bucket.
+let longest_match : Int32 = 273
+
+///|
 /// Compress with LZMA, using the given properties and dictionary size.
 ///
 /// The match finder is a hash chain over three bytes, walked greedily: the first
@@ -242,11 +257,11 @@ pub fn encode(
   let depth = if level <= 3 { 4 } else if level <= 6 { 16 } else { 48 }
   let head = Array::make(1 << 16, -1)
   let prev = Array::make(if n > 0 { n } else { 1 }, -1)
-  let max_match = 273
   let pos_mask = (1 << pb) - 1
   let mut ip = 0
   while ip < n {
     let pos_state = ip & pos_mask
+    let cap = if n - ip < longest_match { n - ip } else { longest_match }
     let mut best_len = 0
     let mut best_dist = 0
     let mut is_rep = false
@@ -255,7 +270,6 @@ pub fn encode(
     let rep = reps[0]
     if rep < ip && rep < dict {
       let mut len = 0
-      let cap = if n - ip < max_match { n - ip } else { max_match }
       while len < cap && src[ip - rep - 1 + len] == src[ip + len] {
         len += 1
       }
@@ -264,11 +278,12 @@ pub fn encode(
         is_rep = true
       }
     }
-    if best_len < max_match && ip + 3 <= n {
+    // A repeat that already covers everything left leaves the chains nothing to
+    // improve, and reading the byte past the end to prove it is out of bounds.
+    if best_len < cap && ip + 3 <= n {
       let hash = hash3(src, ip)
       let mut candidate = head[hash]
       let mut left = depth
-      let cap = if n - ip < max_match { n - ip } else { max_match }
       while candidate >= 0 && left > 0 {
         let distance = ip - candidate - 1
         if distance >= dict {
