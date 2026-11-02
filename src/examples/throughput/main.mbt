@@ -43,21 +43,21 @@ fn corpus() -> Bytes {
 }
 
 ///|
-/// The fastest of five timed runs, in microseconds, after one warm-up. The best
-/// run is the one least disturbed by a scheduler or a cold cache, which is what a
-/// throughput figure is trying to name.
-fn best(action : () -> Unit raise) -> Double raise {
+/// The median of ten timed runs, in microseconds, after one warm-up.
+///
+/// A median rather than a best: the best run on a shared machine is the one that
+/// happened to have the machine to itself, which flatters every figure on the
+/// page equally and tells a reader nothing about what they will see.
+fn median(action : () -> Unit raise) -> Double raise {
   action()
-  let mut fastest = -1.0
-  for _ in 0..<5 {
+  let runs : Array[Double] = []
+  for _ in 0..<10 {
     let start = @bench.monotonic_clock_start()
     action()
-    let dt = @bench.monotonic_clock_end(start)
-    if fastest < 0.0 || dt < fastest {
-      fastest = dt
-    }
+    runs.push(@bench.monotonic_clock_end(start))
   }
-  fastest
+  runs.sort()
+  (runs[4] + runs[5]) / 2.0
 }
 
 ///|
@@ -73,25 +73,29 @@ fn main raise {
   let n = data.length()
   println("body: \{n} bytes of words and numbers")
   let mut d = b""
-  report("deflate write", n, best(fn() { d = @deflate.deflate(data[:]) }))
+  report("deflate write", n, median(fn() { d = @deflate.deflate(data[:]) }))
   let mut db = b""
-  report("deflate read ", n, best(fn() raise { db = @deflate.inflate(d[:]) }))
+  report("deflate read ", n, median(fn() raise { db = @deflate.inflate(d[:]) }))
   let mut g = b""
-  report("gzip    write", n, best(fn() { g = @gzip.gzip(data[:]) }))
+  report("gzip    write", n, median(fn() { g = @gzip.gzip(data[:]) }))
   let mut gb = b""
-  report("gzip    read ", n, best(fn() raise { gb = @gzip.gunzip(g[:]) }))
+  report("gzip    read ", n, median(fn() raise { gb = @gzip.gunzip(g[:]) }))
   let mut z = b""
-  report("zlib    write", n, best(fn() { z = @zlib.zlib(data[:]) }))
+  report("zlib    write", n, median(fn() { z = @zlib.zlib(data[:]) }))
   let mut zb = b""
-  report("zlib    read ", n, best(fn() raise { zb = @zlib.unzlib(z[:]) }))
+  report("zlib    read ", n, median(fn() raise { zb = @zlib.unzlib(z[:]) }))
   let mut s = b""
-  report("zstd    write", n, best(fn() { s = @zstd.zstd(data[:]) }))
+  report("zstd    write", n, median(fn() { s = @zstd.zstd(data[:]) }))
   let mut sb = b""
-  report("zstd    read ", n, best(fn() raise { sb = @zstd.unzstd(s[:]) }))
+  report("zstd    read ", n, median(fn() raise { sb = @zstd.unzstd(s[:]) }))
   let mut br = b""
-  report("brotli  write", n, best(fn() { br = @brotli.brotli(data[:]) }))
+  report("brotli  write", n, median(fn() { br = @brotli.brotli(data[:]) }))
   let mut brb = b""
-  report("brotli  read ", n, best(fn() raise { brb = @brotli.unbrotli(br[:]) }))
+  report(
+    "brotli  read ",
+    n,
+    median(fn() raise { brb = @brotli.unbrotli(br[:]) }),
+  )
   if db.length() != n ||
     gb.length() != n ||
     zb.length() != n ||

@@ -825,21 +825,21 @@ fn Reader::take(self : Reader) -> Bytes {
   // A back-reference may reach 32 KiB back, and those bytes have already been
   // handed to the caller — so that much of what is leaving is kept, exactly as
   // the writer keeps its window. Everything else is the caller's.
-  let from = self.history.length() + made.length() - window
-  if from <= 0 {
-    for b in made {
-      self.history.push(b)
-    }
-  } else {
-    let kept : Array[Byte] = []
-    for i in from..<self.history.length() {
-      kept.push(self.history[i])
-    }
-    for b in made {
-      kept.push(b)
-    }
-    self.history = kept
+  //
+  // What is kept is the *tail*, not the whole output: a push that decodes a
+  // megabyte used to copy all of it into the history one byte at a time, which
+  // doubled the cost of a decode and bought nothing — the bytes before the
+  // window are bytes no back-reference can name.
+  let total = self.history.length() + made.length()
+  let want = if total > window { window } else { total }
+  let start = total - want
+  let kept : Array[Byte] = Array::make(want, b'\x00')
+  let held = self.history.length()
+  for i in 0..<want {
+    let at = start + i
+    kept[i] = if at < held { self.history[at] } else { made[at - held] }
   }
+  self.history = kept
   made
 }
 
@@ -1063,13 +1063,26 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
 /// of output. Here the guard is paid once per symbol rather than twice, and the
 /// stage is tested only when something might have changed it.
 fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
-  while self.stage is Compressed && (self.at_end || self.br.remaining() >= 8) {
-    let sym = self.lit.sym(self.br)
+  // The four things every iteration reaches for, held in locals: the tables do
+  // not change while a block is being decoded, and a field of a struct behind a
+  // reference is a load the optimizer is not obliged to remember.
+  let out = self.out
+  let lit = self.lit
+  let dist = self.dist
+  let br = self.br
+  while self.stage is Compressed && (self.at_end || br.remaining() >= 8) {
+    let sym = lit.sym(br)
     if sym < 0 {
       raise @moonzip.Truncated(at=self.br.at())
     }
     if sym < 256 {
-      self.push_out(sym.to_byte())
+      // The common case, and the one this loop exists for: with no limit there
+      // is nothing to check, and the check costs a call per output byte.
+      if self.limit < 0 {
+        out.push(sym.to_byte())
+      } else {
+        self.push_out(sym.to_byte())
+      }
     } else if sym == 256 {
       if self.final_block {
         self.stage = Done
@@ -1081,19 +1094,19 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
       if index >= 29 {
         raise @moonzip.Code(at=self.br.at())
       }
-      let extra_len = self.br.take(length_extra[index])
+      let extra_len = br.take(length_extra[index])
       if extra_len < 0 {
         raise @moonzip.Truncated(at=self.br.at())
       }
       let len = length_base[index] + extra_len
-      let dcode = self.dist.sym(self.br)
+      let dcode = dist.sym(br)
       if dcode < 0 {
         raise @moonzip.Truncated(at=self.br.at())
       }
       if dcode >= 30 {
         raise @moonzip.Code(at=self.br.at())
       }
-      let extra_dist = self.br.take(dist_extra[dcode])
+      let extra_dist = br.take(dist_extra[dcode])
       if extra_dist < 0 {
         raise @moonzip.Truncated(at=self.br.at())
       }
@@ -1116,8 +1129,16 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
       let kept = self.history.length()
       if (self.limit < 0 || have + len <= self.limit) && start >= kept {
         let base = start - kept
-        for k in 0..<len {
-          self.out.push(self.out[base + k])
+        if back >= len && len >= 16 {
+          // A match that does not overlap itself is a block copy, and taking it
+          // in one go is most of what a long match costs here.
+          let at = out.length()
+          out.resize(at + len, b'\x00')
+          out.unsafe_blit(at, out, base, len)
+        } else {
+          for k in 0..<len {
+            out.push(out[base + k])
+          }
         }
       } else {
         for k in 0..<len {
