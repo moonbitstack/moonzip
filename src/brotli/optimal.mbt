@@ -392,8 +392,20 @@ fn choose(
       // this distance and no nearer one.
       let lo = if k == 0 { 4 } else { blen[i * CANDIDATES + k - 1] + 1 }
       let distance = bdist[i * CANDIDATES + k]
+      // Every length from `lo` to the longest is a candidate, and on a body with a
+      // nine-kilobyte match that is nine thousand relaxations for one step — the
+      // walk becomes quadratic in the length of the repeat, which is exactly the
+      // shape a compressor is handed most often. The useful lengths are at the two
+      // ends: the longest copy available, and the shortest, which leaves the next
+      // match the most room. Thirty-two below the top covers a cut made to reach a
+      // following match; the first sixty-four cover the short copies a run of
+      // literals pays for.
+      let top = if len > 32 { len - 31 } else { lo }
       let mut length = lo
       while length <= len {
+        if length > lo + 63 && length < top {
+          length = top
+        }
         let stop = i + length
         let cost = base +
           copy_price(prices, insert_offsets, copy_offsets, literals, length)

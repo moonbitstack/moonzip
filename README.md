@@ -484,13 +484,13 @@ one keeps the ring the decoder keeps and takes the cheapest name for the distanc
 it has, and rewrites a copy's distance to the newest one whenever the bytes there
 are the same.
 
-On this repository's own documentation — README, homepage and guide, 106,656
-bytes, measured as this commit leaves them — quality 9 gives 28,021 against the
-reference encoder's 27,948 on the same bytes: level, which is where a writer and
-its reference meet when the models match. Quality 11 gives 26,508 against the
-reference's 25,361.
+On this repository's own documentation — README, homepage and guide, about
+107 KB, which is what the pages you are reading add up to — quality 9 gives
+28.0 KB against the reference encoder's 28.0 KB on the same bytes: level, which
+is where a writer and its reference meet when the models match. Quality 11 gives
+26.5 KB against the reference's 25.4 KB.
 
-That 4.5% is what is left of the parse. The reference searches every match its
+That 4.6% is what is left of the parse. The reference searches every match its
 hash chain holds, prices literals per position from a model it refits on each
 pass, and carries the ring of recent distances through the search itself. This
 one keeps six candidates per position, prices literals from the previous round's
