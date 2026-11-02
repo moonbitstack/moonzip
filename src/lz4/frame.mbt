@@ -121,17 +121,20 @@ pub fn unframe(
         )
     }
     let _ = biggest
-    let checked = ((xxh32(data[at:at + 2]) >> 8) & 0xFFU).reinterpret_as_int()
-    if checked != data[at + 2].to_int() {
+    // The checksum covers the whole descriptor, and a content size — when the
+    // frame states one — is part of it. A reader that hashed only the two flags
+    // reads every frame this writer makes and refuses every frame another writer
+    // makes with a size in the header.
+    let span = if has_size { 10 } else { 2 }
+    guard at + span + 1 <= data.length() else { raise @moonzip.Truncated(at~) }
+    let checked = ((xxh32(data[at:at + span]) >> 8) & 0xFFU).reinterpret_as_int()
+    if checked != data[at + span].to_int() {
       raise @moonzip.Checksum(
         want=checked.reinterpret_as_uint(),
-        got=data[at + 2].to_uint(),
+        got=data[at + span].to_uint(),
       )
     }
-    at += 3
-    if has_size {
-      at += 8
-    }
+    at += span + 1
     guard at <= data.length() else { raise @moonzip.Truncated(at~) }
     let mut ended = false
     while !ended {

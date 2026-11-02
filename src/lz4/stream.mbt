@@ -233,12 +233,18 @@ pub fn Reader::push(
           what="a preset dictionary, which is not supported",
         )
       }
-      let head = Bytes::from_array([view[used + 4], view[used + 5]])
-      let want = ((xxh32(head[:]) >> 8) & 0xFFU).reinterpret_as_int()
-      if want != view[used + 6].to_int() {
+      // The checksum covers the descriptor, and the content size is part of it
+      // when the frame states one.
+      let span = if (flags & 0x08) != 0 { 10 } else { 2 }
+      if left < 4 + span + 1 {
+        break
+      }
+      let head = view[used + 4:used + 4 + span]
+      let want = ((xxh32(head) >> 8) & 0xFFU).reinterpret_as_int()
+      if want != view[used + 4 + span].to_int() {
         raise @moonzip.Checksum(
           want=want.reinterpret_as_uint(),
-          got=view[used + 6].to_uint(),
+          got=view[used + 4 + span].to_uint(),
         )
       }
       self.biggest = match (descriptor >> 4) & 0x07 {
@@ -253,13 +259,7 @@ pub fn Reader::push(
           )
       }
       self.content_sum = (flags & 0x04) != 0
-      // The optional content size rides between the descriptor and the blocks and
-      // is only a promise about the body, so it is stepped over.
-      let skip = if (flags & 0x08) != 0 { 8 } else { 0 }
-      if left < 7 + skip {
-        break
-      }
-      used += 7 + skip
+      used += 4 + span + 1
       self.stage = 1
       continue
     }
