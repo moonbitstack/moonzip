@@ -420,7 +420,7 @@ contexts, block types for the command and literal streams, and the static
 dictionary. `quality` (0 to 11, default 9) is how much of that is on and how far
 the chain is walked: more effort, never more bytes, and 0 is the single-candidate
 "fast" search LZ4 ships. On the body in the table below — 184,000 bytes of
-repetitive English — quality 9 reaches 646 bytes, ahead of gzip at 1,983 and zstd
+repetitive English — quality 9 reaches 518 bytes, ahead of gzip at 1,983 and zstd
 at 3,042, because one long match is worth more than everything the fancier models
 add.
 
@@ -472,14 +472,22 @@ apart — the same cut is worth 13%: 24,525 bytes to 21,261 on 40,000 bytes. Tha
 the shape the feature exists for, and the reason the decision is priced rather than
 assumed either way.
 
-On this repository's own documentation — README, homepage and guide, 102,655 bytes
-— quality 9 gives 26,892 and quality 11 gives 26,892: the model is what the size
-comes from, and a deeper chain finds almost nothing the 256-candidate one missed.
-The reference encoder reaches 26,744 on the same bytes at quality 9 and 24,207 at
-quality 11. So this writer is 0.6% behind at nine — the closest it has been — and
-11% behind at eleven, which is what an optimal parse is worth: the reference
-prices every candidate from a cost model and iterates, and this one takes the
-longest match the chain finds and one lazy step past it.
+Two details of the format carry most of the last percent. A distance the stream
+used a moment ago has a two-bit name, and each of the four remembered distances
+has six neighbours within three bytes that are nearly as cheap; a writer that
+spells every distance out from code sixteen up pays five to twenty bits for each
+copy, which on a repetitive body is most of what the distance tree spends. This
+one keeps the ring the decoder keeps and takes the cheapest name for the distance
+it has, and rewrites a copy's distance to the newest one whenever the bytes there
+are the same.
+
+On this repository's own documentation — README, homepage and guide, 104,955 bytes
+— quality 9 gives 27,404 against the reference encoder's 27,402 on the same
+bytes: two bytes, which is where a writer and its reference meet when the models
+match. Quality 11 gives 27,385 against the reference's 24,831, and that 10% is
+what an optimal parse is worth — the reference prices every candidate from a cost
+model and iterates; this one takes the longest match the chain finds and one lazy
+step past it.
 
 Every new form is checked against the reference decoder, not just this one: a
 quality-11 stream over a 101 KB body, whose header declares two block types and a
@@ -527,7 +535,7 @@ tail, printed by `src/examples/stream`.
 | xz | 468 | 0.3% |
 | lzma, alone | 415 | 0.2% |
 | zstd | 3,042 | 1.7% |
-| brotli | 646 | 0.4% |
+| brotli | 518 | 0.3% |
 | — nothing | 184,000 | 100% |
 
 The three at the bottom are the block-sorting and range-coding end of the field:
