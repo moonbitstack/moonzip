@@ -110,7 +110,10 @@ fn effort(quality : Int32) -> (Int32, Bool, Bool, Bool, Bool) {
     6 => (64, true, false, false, false)
     7 => (128, true, false, false, false)
     8 => (192, true, false, false, false)
-    9 => (256, true, false, false, false)
+    // Nine is the default, and it models: literal contexts, split streams and the
+    // dictionary are what brotli is for, and a default that leaves them off is a
+    // default that loses to gzip on the one corpus every reader has — prose.
+    9 => (256, true, true, true, true)
     10 => (512, true, true, true, true)
     _ => (1024, true, true, true, true)
   }
