@@ -232,3 +232,42 @@ test "the default quality is nine" {
   let data = b"the quick brown fox jumps over the lazy dog, again and again and again."
   assert_eq(@brotli.brotli(data[:]), @brotli.brotli(data[:], quality=9))
 }
+
+///|
+/// The search's start positions are worth what they cost, as a number.
+///
+/// The body is words and numbers in a fixed pattern, and quality 11 comes out at
+/// 33,197 bytes through the parse that keeps its eight cheapest start positions
+/// and tries five of them. A parse that keeps only the one the cheapest path
+/// arrived by — the search this package had before — writes 33,551 on the same
+/// bytes. The bound between them is a ceiling rather than a target: an encoder that
+/// improves passes it, and a search that stops exploring its start positions does
+/// not.
+test "the search keeps its start positions" {
+  let words = [
+    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota",
+    "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi",
+  ]
+  let out : Array[Byte] = []
+  let mut state : UInt32 = 123456789U
+  while out.length() < 120000 {
+    state = state * 1103515245U + 12345U
+    for b in @utf8.encode(words[(state >> 16).reinterpret_as_int() % 16]) {
+      out.push(b)
+    }
+    out.push(b' ')
+    let n = ((state >> 8) % 1000U).reinterpret_as_int()
+    for ch in n.to_string() {
+      out.push((ch.to_int() & 0xFF).to_byte())
+    }
+    out.push(b' ')
+  }
+  let body = Bytes::from_array(out)
+  let packed = @brotli.brotli(body[:], quality=11)
+  assert_eq(@brotli.unbrotli(packed[:]), body)
+  if packed.length() > 33400 {
+    fail(
+      "quality 11 wrote \{packed.length()} bytes, which is what a search without its start positions writes",
+    )
+  }
+}

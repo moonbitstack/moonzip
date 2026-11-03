@@ -9,4 +9,5 @@ import {
 import {
   "moonbitstack/moonzip/brotli",
   "moonbitstack/moonbase/base16",
+  "moonbitlang/core/encoding/utf8",
 } for "test"

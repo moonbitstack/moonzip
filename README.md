@@ -509,49 +509,33 @@ quality 11. With exact pricing, turning any of them on can no longer cost bytes,
 and a test pins that.
 
 The literal cut is the one that varies most with the body, and it is measured in
-both directions. On this repository's own documentation it is worth nothing and is
-correctly declined: prose is one kind of text throughout, and the 64 contexts
-already give each letter the code it wants. On a body of two disjoint sixteen-byte
-alphabets whose low six bits agree — so the context model cannot tell the halves
-apart — the same cut is worth 13%: 24,525 bytes to 21,261 on 40,000 bytes. That is
-the shape the feature exists for, and the reason the decision is priced rather than
-assumed either way.
+both directions. On this repository's own documentation — README, homepage and guide, about
+111 KB, which is what the pages you are reading add up to — quality 9 gives
+29.2 KB against the reference encoder's 29.1 KB on the same bytes: level, which is
+where a writer and its reference meet when the models match. Quality 11 gives
+26.7 KB against the reference's 26.4 KB, and the same body through the search this
+package had before came out at 27.6 KB, so the parse change is worth 3.3%.
 
-Two details of the format carry most of the last percent. A distance the stream
-used a moment ago has a two-bit name, and each of the four remembered distances
-has six neighbours within three bytes that are nearly as cheap; a writer that
-spells every distance out from code sixteen up pays five to twenty bits for each
-copy, which on a repetitive body is most of what the distance tree spends. This
-one keeps the ring the decoder keeps and takes the cheapest name for the distance
-it has, and rewrites a copy's distance to the newest one whenever the bytes there
-are the same.
+Three things were added, and one measurement is worth more than the three
+descriptions. **The insert run is a state**: the search keeps the eight cheapest
+positions a command could have ended at, ordered by what they cost beyond coding
+the bytes in between as literals, and tries copies from the five cheapest, because
+a command's insert length is coded jointly with its copy length. **The ring of
+recent distances is in the search**: all sixteen short codes are tried at every
+position against the ring the cheapest path there would have left behind, because
+those distances are not in the match list — the chain was built before the parse
+decided anything. **The candidate list is thirty-two deep** rather than six.
 
-On this repository's own documentation — README, homepage and guide, about
-107 KB, which is what the pages you are reading add up to — quality 9 gives
-28.0 KB against the reference encoder's 28.0 KB on the same bytes: level, which
-is where a writer and its reference meet when the models match. Quality 11 gives
-25.7 KB against the reference's 25.4 KB.
-
-That 1.3% is what is left of the parse. **The ring of recent distances is part of
-the search**: a copy that names one of the last four distances costs two to six
-bits instead of five to twenty, and those distances are not in the match list —
-the chain was built before the parse decided anything — so all sixteen short
-codes are tried at every position, against the ring the cheapest path there would
-have left behind. **The insert run is a state**: the search keeps the eight
-cheapest positions a command could have ended at, ordered by what they cost
-beyond coding the bytes in between as literals, and tries the copies from each,
-because a command's insert length is coded jointly with its copy length. And the
-candidate list is thirty-two matches deep rather than six.
-
-Those three are what make pricing a distance at the symbol it takes safe. The
-obvious model — charge each copy the width of the distance symbol it needs — is
-self-fulfilling when the search cannot *reach* a cheap distance: a round that
-priced fresh distances at ten bits finds a parse that uses fewer of them, the next
-round's distance tree is flatter and prices them higher still, and the search
-walks into a corner where almost nothing is a copy. Measured on this corpus
-without the ring in the search, the exact model came out three and a half per cent
-*larger* than one that priced every distance as a repeat. With the ring in the
-search the question answers itself: the cheap distances are there to be found.
+Of the three, keeping the start positions is where the bytes are: a search with one
+start instead of five writes 1.1% more on the same body. The ring is close to a
+wash in bytes — 0.36% better on prose, 0.2% worse on a body of words and numbers —
+and the reason is that this writer already had a pass that rewrites each copy to a
+cheap distance when the bytes allow it (`cheapen`), which is the job the reference
+puts in its search because it has no such pass. What the ring buys here is the
+price model: with a cheap distance actually reachable, a copy can be charged the
+symbol it takes instead of what a repeat costs, and the search stops having to be
+lied to. The deeper candidate list stops paying past a dozen on every body
+measured; thirty-two is the reference's order of magnitude, not a measured win.
 
 Every new form is checked against the reference decoder, not just this one: a
 quality-11 stream over a 101 KB body, whose header declares two block types and a
