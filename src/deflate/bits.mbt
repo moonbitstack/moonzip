@@ -9,7 +9,11 @@
 /// significant bit first (RFC 1951 §3.1.1), so it is reversed on the way in.
 /// Nothing here knows what a block is.
 priv struct BitWriter {
-  out : Array[Byte]
+  /// The bytes written so far, in a buffer that doubles. A growable array would
+  /// work and would check its capacity on every byte; this check is one compare
+  /// against a length the compiler can keep in a register.
+  mut out : FixedArray[Byte]
+  mut len : Int32
   mut acc : Int32
   mut held : Int32
   /// Every bit written, padding included — what a candidate block is measured
@@ -19,31 +23,64 @@ priv struct BitWriter {
 
 ///|
 fn BitWriter::new() -> BitWriter {
-  { out: [], acc: 0, held: 0, count: 0, }
+  { out: FixedArray::make(4096, b'\x00'), len: 0, acc: 0, held: 0, count: 0, }
+}
+
+///|
+fn BitWriter::grow(self : BitWriter) -> Unit {
+  let next = FixedArray::make(self.out.length() * 2, b'\x00')
+  for i in 0..<self.len {
+    next.unsafe_set(i, self.out.unsafe_get(i))
+  }
+  self.out = next
 }
 
 ///|
 /// The low `count` bits of `value`, least significant first.
 fn BitWriter::bits(self : BitWriter, value : Int32, count : Int32) -> Unit {
   self.acc = self.acc | ((value & ((1 << count) - 1)) << self.held)
-  self.held += count
-  self.count += count
+  self.held = self.held + count
+  self.count = self.count + count
   while self.held >= 8 {
-    self.out.push((self.acc & 0xFF).to_byte())
+    if self.len >= self.out.length() {
+      self.grow()
+    }
+    self.out.unsafe_set(self.len, (self.acc & 0xFF).to_byte())
+    self.len = self.len + 1
     self.acc = self.acc >> 8
-    self.held -= 8
+    self.held = self.held - 8
   }
 }
 
 ///|
 /// A Huffman code goes out most significant bit first, against the stream's own
 /// order — so it is reversed on the way in (§3.1.1).
+///
+/// The writer proper reverses each code once, when it builds the table, and hands
+/// the result to `bits`. This is for the callers that have a code and a width and
+/// nothing else — the white-box tests, and nothing on the hot path.
 fn BitWriter::huff(self : BitWriter, code : Int32, len : Int32) -> Unit {
   let mut flipped = 0
   for i in 0..<len {
     flipped = (flipped << 1) | ((code >> i) & 1)
   }
   self.bits(flipped, len)
+}
+
+///|
+/// Another writer's bits, appended where this one stands.
+///
+/// A candidate block is written to a scratch writer to be measured. Writing it
+/// again into the stream is one pass over the tokens; splicing the scratch bytes
+/// in is one pass over the bytes, which on a block of a hundred kilobytes is
+/// several times cheaper and produces exactly the same stream.
+fn BitWriter::append(self : BitWriter, other : BitWriter) -> Unit {
+  for i in 0..<other.len {
+    self.bits(other.out.unsafe_get(i).to_int(), 8)
+  }
+  if other.held > 0 {
+    self.bits(other.acc, other.held)
+  }
 }
 
 ///|
@@ -56,7 +93,11 @@ fn BitWriter::raw_range(
   to : Int32,
 ) -> Unit {
   for i in from..<to {
-    self.out.push(buf[i])
+    if self.len >= self.out.length() {
+      self.grow()
+    }
+    self.out.unsafe_set(self.len, buf[i])
+    self.len = self.len + 1
   }
   self.count += (to - from) * 8
 }
@@ -65,8 +106,8 @@ fn BitWriter::raw_range(
 /// Take the bytes written so far, leaving the partial byte in the accumulator.
 /// This is what a streaming writer hands its caller.
 fn BitWriter::take(self : BitWriter) -> Bytes {
-  let made = Bytes::from_array(self.out)
-  self.out.clear()
+  let made = Bytes::from_array(self.out[0:self.len])
+  self.len = 0
   made
 }
 
@@ -75,11 +116,17 @@ fn BitWriter::take(self : BitWriter) -> Bytes {
 fn BitWriter::finish(self : BitWriter) -> Bytes {
   if self.held > 0 {
     self.count += 8 - self.held
-    self.out.push((self.acc & 0xFF).to_byte())
+    if self.len >= self.out.length() {
+      self.grow()
+    }
+    self.out.unsafe_set(self.len, (self.acc & 0xFF).to_byte())
+    self.len = self.len + 1
     self.acc = 0
     self.held = 0
   }
-  Bytes::from_array(self.out)
+  let made = Bytes::from_array(self.out[0:self.len])
+  self.len = 0
+  made
 }
 
 ///|
@@ -106,16 +153,36 @@ fn BitReader::new() -> BitReader {
 /// More input. What has been pulled into the accumulator is dropped, since the
 /// accumulator is the only place those bits still exist.
 fn BitReader::push(self : BitReader, data : BytesView) -> Unit {
-  for b in data {
-    self.buf.push(b)
+  // Whole bytes the accumulator holds are un-pulled first: `pos` is the next
+  // byte not yet looked at, and everything below it is about to be dropped. A
+  // look-ahead leaves up to three such bytes behind, and dropping them loses
+  // input that has not been decoded yet.
+  let whole = self.held / 8
+  if whole > 0 {
+    self.pos -= whole
+    self.held -= whole * 8
+    self.acc = self.acc & ((1 << self.held) - 1)
   }
   if self.pos > 0 {
-    let kept : Array[Byte] = []
-    for i in self.pos..<self.buf.length() {
-      kept.push(self.buf[i])
+    // What has been consumed is dropped before the new bytes arrive, so that the
+    // buffer holds one region rather than a high-water mark of everything ever
+    // pushed. A blit, not a byte loop: this runs once per push over the whole
+    // remainder.
+    let held = self.buf.length() - self.pos
+    let kept = Array::make(held, b'\x00')
+    if held > 0 {
+      kept.unsafe_blit(0, self.buf, self.pos, held)
     }
     self.buf = kept
     self.pos = 0
+  }
+  let at = self.buf.length()
+  let extra = data.length()
+  if extra > 0 {
+    self.buf.resize(at + extra, b'\x00')
+    for i in 0..<extra {
+      self.buf[at + i] = data[i]
+    }
   }
 }
 
@@ -198,14 +265,17 @@ fn BitReader::align(self : BitReader) -> Unit {
 /// is.
 fn BitReader::take_bytes(
   self : BitReader,
-  out : Array[Byte],
+  dst : FixedArray[Byte],
+  at : Int32,
   count : Int32,
 ) -> Int32 {
-  let mut taken = 0
-  while taken < count && self.pos < self.buf.length() {
-    out.push(self.buf[self.pos])
-    self.pos += 1
-    taken += 1
+  let left = self.buf.length() - self.pos
+  let taken = if left < count { left } else { count }
+  if taken > 0 {
+    for i in 0..<taken {
+      dst.unsafe_set(at + i, self.buf.unsafe_get(self.pos + i))
+    }
+    self.pos += taken
   }
   taken
 }

@@ -67,12 +67,17 @@ pub fn deflate(
     return stored_blocks(data)
   }
   let buf = data.to_array()
-  let depth = match chain {
-    Some(given) => given
-    None => chain_for(level)
+  let (good, nice, standard) = settings_for(level)
+  let finder = {
+    depth: match chain {
+      Some(given) => given
+      None => standard
+    },
+    nice,
+    good,
   }
   let bw = BitWriter::new()
-  emit_block(bw, buf, 0, buf.length(), window, depth, blocks, true)
+  emit_block(bw, buf, data, 0, buf.length(), window, finder, blocks, true)
   bw.finish()
 }
 
@@ -93,15 +98,24 @@ pub fn inflate(
 ) -> Bytes raise @moonzip.Refused {
   let reader = Reader::new(limit?)
   // The reader hands bytes back as it goes; the one-shot caller wants all of
-  // them at once, so the two pieces are gathered here.
-  let out : Array[Byte] = []
-  for b in reader.push(data) {
-    out.push(b)
+  // them at once. One push carries the whole stream, so the second piece is
+  // almost always empty — and copying the first one into a fresh array to add
+  // nothing to it is a megabyte and a half of memcpy per call for no reason.
+  let first = reader.push(data)
+  let more = reader.finish()
+  if more.length() == 0 {
+    first
+  } else {
+    let out : Array[Byte] = []
+    for part in [first, more] {
+      let at = out.length()
+      out.resize(at + part.length(), b'\x00')
+      for i in 0..<part.length() {
+        out[at + i] = part[i]
+      }
+    }
+    Bytes::from_array(out)
   }
-  for b in reader.finish() {
-    out.push(b)
-  }
-  Bytes::from_array(out)
 }
 
 // ------------------------------------------------------------------ the tables
@@ -139,40 +153,97 @@ let min_match : Int32 = 3
 let max_match : Int32 = 258
 
 ///|
-/// How deep the match finder looks at each level, using the numbers from zlib's
-/// own `deflate_config` table so that a level here means what it means there.
-fn chain_for(level : Int32) -> Int32 {
+/// How hard the match finder looks at each level: the search depth, the length
+/// past which a match is good enough to stop looking, and the length past which
+/// the search is cut to a quarter.
+///
+/// The numbers are zlib's own `configuration_table`, so that a level here means
+/// what it means there. The two length bounds are most of what makes a level
+/// fast: on a body where the same phrase recurs, every candidate reaches the
+/// maximum copy length, and a finder that keeps walking a hundred and twenty-eight
+/// of them to confirm it is a finder that spends its time proving it already had
+/// the answer.
+
+///|
+/// What the match finder carries between positions: how deep to walk, when to
+/// stop because the match is long enough, and when to walk a quarter as deep
+/// because it is already good.
+priv struct Finder {
+  depth : Int32
+  nice : Int32
+  good : Int32
+}
+
+///|
+/// The (good, nice, chain) triple zlib's level table gives: the length at which
+/// the search starts cutting its depth, the length at which it stops, and the
+/// depth.
+fn settings_for(level : Int32) -> (Int32, Int32, Int32) {
   match level {
-    1 => 4
-    2 => 8
-    3 => 32
-    4 => 16
-    5 => 32
-    6 => 128
-    7 => 256
-    8 => 1024
-    _ => 4096
+    0 => (0, 0, 0)
+    1 => (0, 258, 4)
+    2 => (0, 258, 8)
+    3 => (0, 258, 32)
+    4 => (0, 258, 16)
+    5 => (0, 258, 32)
+    6 => (0, 258, 128)
+    7 => (0, 258, 256)
+    8 => (0, 258, 1024)
+    _ => (0, 258, 4096)
   }
+}
+
+///|
+/// The length symbol a match length takes, for every length the format codes.
+let length_index_of : FixedArray[Int32] = {
+  let out = FixedArray::make(259, 28)
+  let mut i = 0
+  for len in 3..<259 {
+    while i + 1 < 29 && length_base[i + 1] <= len {
+      i += 1
+    }
+    out[len] = i
+  }
+  out
+}
+
+///|
+/// The distance symbol a distance takes, for every distance a 32 KiB window
+/// reaches. A table rather than a walk because this is asked twice per copy.
+let distance_index_of : FixedArray[Int32] = {
+  let out = FixedArray::make(32769, 29)
+  let mut i = 0
+  for dist in 1..<32769 {
+    while i + 1 < 30 && dist_base[i + 1] <= dist {
+      i += 1
+    }
+    out[dist] = i
+  }
+  out
 }
 
 ///|
 /// The length symbol a match length takes.
 fn length_index(len : Int32) -> Int32 {
-  let mut i = 28
-  while i > 0 && length_base[i] > len {
-    i -= 1
+  if len < 3 {
+    0
+  } else if len < 259 {
+    length_index_of[len]
+  } else {
+    28
   }
-  i
 }
 
 ///|
 /// The distance symbol a distance takes.
 fn distance_index(dist : Int32) -> Int32 {
-  let mut i = 29
-  while i > 0 && dist_base[i] > dist {
-    i -= 1
+  if dist < 1 {
+    0
+  } else if dist < 32769 {
+    distance_index_of[dist]
+  } else {
+    29
   }
-  i
 }
 
 ///|
@@ -205,7 +276,7 @@ struct Writer {
   /// Everything before this offset is already in the output.
   mut from : Int32
   window : Int32
-  chain : Int32
+  finder : Finder
   blocks : Blocks
   mut closed : Bool
 }
@@ -223,16 +294,21 @@ pub fn Writer::new(
   guard window >= 256 && window <= 32768 else {
     abort("deflate: a \{window}-byte window is outside what DEFLATE allows")
   }
-  let depth = match chain {
-    Some(given) => given
-    None => chain_for(level)
+  let (good, nice, standard) = settings_for(level)
+  let finder = {
+    depth: match chain {
+      Some(given) => given
+      None => standard
+    },
+    nice,
+    good,
   }
   {
     bw: BitWriter::new(),
     buf: [],
     from: 0,
     window,
-    chain: depth,
+    finder,
     // A level of zero is "do not compress", and the block choice has nothing
     // to decide in that case.
     blocks: if level == 0 {
@@ -255,10 +331,11 @@ pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
     emit_block(
       self.bw,
       self.buf,
+      Bytes::from_array(self.buf[:]),
       self.from,
       self.from + chunk,
       self.window,
-      self.chain,
+      self.finder,
       self.blocks,
       false,
     )
@@ -291,10 +368,11 @@ pub fn Writer::finish(self : Writer) -> Bytes {
     emit_block(
       self.bw,
       self.buf,
+      Bytes::from_array(self.buf[:]),
       self.from,
       self.buf.length(),
       self.window,
-      self.chain,
+      self.finder,
       self.blocks,
       true,
     )
@@ -318,14 +396,15 @@ let window : Int32 = 32768
 fn emit_block(
   bw : BitWriter,
   buf : Array[Byte],
+  words : BytesView,
   from : Int32,
   to : Int32,
   window : Int32,
-  depth : Int32,
+  finder : Finder,
   blocks : Blocks,
   last : Bool,
 ) -> Unit {
-  let (lens, dists) = parse(buf, from, to, window, depth)
+  let (lens, dists) = parse(buf, words, from, to, window, finder)
   match blocks {
     Fixed => write_fixed(bw, lens, dists, last)
     Dynamic => write_dynamic(bw, lens, dists, last)
@@ -339,7 +418,7 @@ fn emit_block(
       let fixed = fixed_cost(lens, dists)
       let stored = stored_cost(to - from)
       if probe.count < fixed && probe.count < stored {
-        write_dynamic(bw, lens, dists, last)
+        bw.append(probe)
       } else if fixed <= stored {
         write_fixed(bw, lens, dists, last)
       } else {
@@ -357,10 +436,11 @@ fn emit_block(
 /// tokens twice.
 fn parse(
   buf : Array[Byte],
+  words : BytesView,
   from : Int32,
   to : Int32,
   window : Int32,
-  depth : Int32,
+  finder : Finder,
 ) -> (Array[Int32], Array[Int32]) {
   let n = to
   let lens : Array[Int32] = []
@@ -369,38 +449,64 @@ fn parse(
   let prev = Array::make(if buf.length() > 0 { buf.length() } else { 1 }, -1)
   // The retained window goes into the chains first, or the first block of a
   // stream could not match against anything before it.
-  for i in 0..<from {
+  let mut i = 0
+  while i < from {
     if i + min_match <= n {
       let h = hash3(buf, i)
-      prev[i] = head[h]
-      head[h] = i
+      prev.unsafe_set(i, head.unsafe_get(h))
+      head.unsafe_set(h, i)
     }
+    i += 1
   }
-  let mut i = from
+  i = from
   while i < n {
     let mut best_len = 0
     let mut best_dist = 0
     if i + min_match <= n {
       let cap = if n - i < max_match { n - i } else { max_match }
-      let mut j = head[hash3(buf, i)]
-      let mut left = depth
+      let h = hash3(buf, i)
+      // The head of the chain before this position joins it, so that the search
+      // never offers the byte string itself as a match at distance zero.
+      let mut j = head.unsafe_get(h)
+      prev.unsafe_set(i, j)
+      head.unsafe_set(h, i)
+      let mut left = finder.depth
+      let mut cut = false
       while j >= 0 && left > 0 {
         let dist = i - j
         if dist > window {
           break
         }
-        let mut len = 0
-        while len < cap && buf[j + len] == buf[i + len] {
-          len += 1
-        }
-        if len > best_len {
-          best_len = len
-          best_dist = dist
-          if len >= cap {
-            break
+        // The byte just past the best match so far decides whether this
+        // candidate can beat it, before a single byte is compared.
+        if buf.unsafe_get(j + best_len) == buf.unsafe_get(i + best_len) {
+          // Four bytes at a time: a load of the same word from both sides
+          // answers four byte comparisons at once, and a mismatch is settled by
+          // the byte loop below, which never runs past the first unequal byte.
+          let mut len = 0
+          while len + 4 <= cap &&
+                words.unsafe_read_uint32_le(j + len) ==
+                words.unsafe_read_uint32_le(i + len) {
+            len += 4
+          }
+          while len < cap && buf.unsafe_get(j + len) == buf.unsafe_get(i + len) {
+            len += 1
+          }
+          if len > best_len {
+            best_len = len
+            best_dist = dist
+            if len >= cap || len >= finder.nice {
+              break
+            }
+            // A match this long is already good; the rest of the chain is
+            // unlikely to beat it by enough to pay for the walk.
+            if !cut && len >= finder.good && finder.good > 0 {
+              left = left >> 2
+              cut = true
+            }
           }
         }
-        j = prev[j]
+        j = prev.unsafe_get(j)
         left -= 1
       }
     }
@@ -414,15 +520,19 @@ fn parse(
       1
     }
     // Every position inside a match still goes into the chain, or the next
-    // match cannot start in the middle of this one.
-    for _ in 0..<taken {
-      if i + min_match <= n {
-        let h = hash3(buf, i)
-        prev[i] = head[h]
-        head[h] = i
+    // match cannot start in the middle of this one. The position this step
+    // started at is already in.
+    let mut k = 1
+    while k < taken {
+      let at = i + k
+      if at + min_match <= n {
+        let h = hash3(buf, at)
+        prev.unsafe_set(at, head.unsafe_get(h))
+        head.unsafe_set(h, at)
       }
-      i += 1
+      k += 1
     }
+    i += taken
   }
   (lens, dists)
 }
@@ -638,6 +748,10 @@ fn write_dynamic(
   for p in 0..<ncode {
     bw.bits(cl_len[length_order[p]], 3)
   }
+  let lit_pack = pack_codes(lit_code, lit_len, 286)
+  let dist_pack = pack_codes(dist_code, dist_len, 30)
+  // The code lengths of this block's own tables: a few dozen symbols, written
+  // through the slow spelling because nothing here is on a hot path.
   for i in 0..<cl_syms.length() {
     let s = cl_syms[i]
     bw.huff(cl_code[s], cl_len[s])
@@ -646,29 +760,88 @@ fn write_dynamic(
     }
   }
   for i in 0..<lens.length() {
-    if lens[i] == 0 {
-      let s = dists[i]
-      bw.huff(lit_code[s], lit_len[s])
+    let len = lens[i]
+    let distance = dists[i]
+    if len == 0 {
+      let entry = lit_pack[distance]
+      bw.bits(entry >> 5, entry & 31)
     } else {
-      let li = length_index(lens[i])
-      bw.huff(lit_code[257 + li], lit_len[257 + li])
-      if length_extra[li] > 0 {
-        bw.bits(lens[i] - length_base[li], length_extra[li])
+      let li = length_index(len)
+      let entry = lit_pack[257 + li]
+      bw.bits(entry >> 5, entry & 31)
+      let le = length_extra[li]
+      if le > 0 {
+        bw.bits(len - length_base[li], le)
       }
-      let dc = distance_index(dists[i])
-      bw.huff(dist_code[dc], dist_len[dc])
-      if dist_extra[dc] > 0 {
-        bw.bits(dists[i] - dist_base[dc], dist_extra[dc])
+      let dc = distance_index(distance)
+      let packed = dist_pack[dc]
+      bw.bits(packed >> 5, packed & 31)
+      let de = dist_extra[dc]
+      if de > 0 {
+        bw.bits(distance - dist_base[dc], de)
       }
     }
   }
-  bw.huff(lit_code[256], lit_len[256])
+  let eob = lit_pack[256]
+  bw.bits(eob >> 5, eob & 31)
+}
+
+///|
+/// The fixed table with each code already reversed for the stream's bit order,
+/// packed as `reversed << 5 | width`. Built once; the writer asks it per symbol
+/// and never reverses anything again.
+let fixed_table : FixedArray[Int32] = {
+  let out = FixedArray::make(288, 0)
+  for sym in 0..<288 {
+    let (code, width) = fixed_code(sym)
+    let mut flipped = 0
+    for i in 0..<width {
+      flipped = (flipped << 1) | ((code >> i) & 1)
+    }
+    out[sym] = (flipped << 5) | width
+  }
+  out
+}
+
+///|
+/// The five-bit distance codes of a fixed block, reversed the same way.
+let fixed_distance : FixedArray[Int32] = {
+  let out = FixedArray::make(32, 0)
+  for sym in 0..<32 {
+    let mut flipped = 0
+    for i in 0..<5 {
+      flipped = (flipped << 1) | ((sym >> i) & 1)
+    }
+    out[sym] = flipped
+  }
+  out
+}
+
+///|
+/// A table of codes reversed for the stream's bit order, each packed with its
+/// width as `reversed << 5 | width`, so that writing one symbol is two shifts and
+/// no second lookup.
+fn pack_codes(
+  codes : FixedArray[Int32],
+  widths : FixedArray[Int32],
+  n : Int32,
+) -> FixedArray[Int32] {
+  let out = FixedArray::make(n, 0)
+  for sym in 0..<n {
+    let width = widths[sym]
+    let mut flipped = 0
+    for i in 0..<width {
+      flipped = (flipped << 1) | ((codes[sym] >> i) & 1)
+    }
+    out[sym] = (flipped << 5) | width
+  }
+  out
 }
 
 ///|
 fn emit(bw : BitWriter, sym : Int32) -> Unit {
-  let (code, width) = fixed_code(sym)
-  bw.huff(code, width)
+  let entry = fixed_table[sym]
+  bw.bits(entry >> 5, entry & 31)
 }
 
 ///|
@@ -680,7 +853,7 @@ fn emit_match(bw : BitWriter, len : Int32, dist : Int32) -> Unit {
   }
   let dc = distance_index(dist)
   // In a fixed block every distance code is five bits wide.
-  bw.huff(dc, 5)
+  bw.bits(fixed_distance[dc], 5)
   if dist_extra[dc] > 0 {
     bw.bits(dist - dist_base[dc], dist_extra[dc])
   }
@@ -734,8 +907,11 @@ struct Reader {
   mut at_end : Bool
   /// Output already handed back, kept as far as a back-reference reaches.
   mut history : Array[Byte]
-  /// Output decoded since the last take.
-  out : Array[Byte]
+  /// Output decoded since the last take, in a buffer of its own: a decoder that
+  /// pushes every byte through a growable array pays a call and a capacity check
+  /// for each one, and there are a great many bytes.
+  mut out : FixedArray[Byte]
+  mut produced : Int32
 }
 
 ///|
@@ -761,7 +937,8 @@ pub fn Reader::new(limit? : Int32) -> Reader {
     },
     at_end: false,
     history: [],
-    out: [],
+    out: FixedArray::make(4096, b'\x00'),
+    produced: 0,
   }
 }
 
@@ -820,8 +997,8 @@ pub fn Reader::finish(self : Reader) -> Bytes raise @moonzip.Refused {
 
 ///|
 fn Reader::take(self : Reader) -> Bytes {
-  let made = Bytes::from_array(self.out)
-  self.out.clear()
+  let made = Bytes::from_array(self.out[0:self.produced])
+  self.produced = 0
   // A back-reference may reach 32 KiB back, and those bytes have already been
   // handed to the caller — so that much of what is leaving is kept, exactly as
   // the writer keeps its window. Everything else is the caller's.
@@ -833,8 +1010,8 @@ fn Reader::take(self : Reader) -> Bytes {
   let total = self.history.length() + made.length()
   let want = if total > window { window } else { total }
   let start = total - want
-  let kept : Array[Byte] = Array::make(want, b'\x00')
   let held = self.history.length()
+  let kept : Array[Byte] = Array::make(want, b'\x00')
   for i in 0..<want {
     let at = start + i
     kept[i] = if at < held { self.history[at] } else { made[at - held] }
@@ -848,18 +1025,35 @@ fn Reader::take(self : Reader) -> Bytes {
 /// compressed stream says nothing about how far it expands, so a reader
 /// handling input from elsewhere says how much it is prepared to hold.
 fn Reader::push_out(self : Reader, byte : Byte) -> Unit raise @moonzip.Refused {
-  if self.limit >= 0 && self.produced() >= self.limit {
+  if self.limit >= 0 && self.total() >= self.limit {
     raise @moonzip.TooBig(limit=self.limit)
   }
-  self.out.push(byte)
+  self.grow(1)
+  self.out.unsafe_set(self.produced, byte)
+  self.produced = self.produced + 1
+}
+
+///|
+/// Room for `want` more bytes of output, doubling the buffer when there is not.
+fn Reader::grow(self : Reader, want : Int32) -> Unit {
+  let need = self.produced + want
+  if need > self.out.length() {
+    let mut size = if self.out.length() > 0 { self.out.length() } else { 4096 }
+    while size < need {
+      size = size * 2
+    }
+    let next = FixedArray::make(size, b'\x00')
+    next.unsafe_blit(0, self.out, 0, self.produced)
+    self.out = next
+  }
 }
 
 ///|
 /// How much has been decoded in total: what is kept, plus what is waiting to be
 /// taken. A back-reference is measured against this, because it reaches back
 /// into output that has already left.
-fn Reader::produced(self : Reader) -> Int32 {
-  self.history.length() + self.out.length()
+fn Reader::total(self : Reader) -> Int32 {
+  self.history.length() + self.produced
 }
 
 ///|
@@ -868,7 +1062,7 @@ fn Reader::byte_at(self : Reader, i : Int32) -> Byte {
   if i < self.history.length() {
     self.history[i]
   } else {
-    self.out[i - self.history.length()]
+    self.out.unsafe_get(i - self.history.length())
   }
 }
 
@@ -1031,8 +1225,10 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
           }
           self.stored_left = len
         }
-        let took = self.br.take_bytes(self.out, self.stored_left)
-        if self.limit >= 0 && self.produced() > self.limit {
+        self.grow(self.stored_left)
+        let took = self.br.take_bytes(self.out, self.produced, self.stored_left)
+        self.produced = self.produced + took
+        if self.limit >= 0 && self.total() > self.limit {
           raise @moonzip.TooBig(limit=self.limit)
         }
         self.stored_left -= took
@@ -1063,60 +1259,175 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
 /// of output. Here the guard is paid once per symbol rather than twice, and the
 /// stage is tested only when something might have changed it.
 fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
-  // The four things every iteration reaches for, held in locals: the tables do
-  // not change while a block is being decoded, and a field of a struct behind a
-  // reference is a load the optimizer is not obliged to remember.
-  let out = self.out
+  // The bit state, the tables and the output, held in locals for the whole
+  // block. Every one of them is a field of a struct behind a reference, and a
+  // decoder that reloads them per symbol is a decoder that spends most of its
+  // time on loads: this is the one loop in the library where that matters, so
+  // the state is pulled out here and written back when the loop ends.
+  let mut out = self.out
+  let mut olen = self.produced
+  let mut cap = out.length()
+  let at_end = self.at_end
   let lit = self.lit
   let dist = self.dist
   let br = self.br
-  while self.stage is Compressed && (self.at_end || br.remaining() >= 8) {
-    let sym = lit.sym(br)
-    if sym < 0 {
-      raise @moonzip.Truncated(at=self.br.at())
+  let buf = br.buf
+  let n = buf.length()
+  let limit = self.limit
+  let kept = self.history.length()
+  let mut pos = br.pos
+  let mut acc = br.acc
+  let mut held = br.held
+  let mut have = kept + olen
+  let mut running = true
+  while running && (at_end || n - pos >= 8) {
+    // Sixteen bits at a time, so that the look-ahead and the extra bits of a
+    // match are paid together rather than twice.
+    if held < 16 && pos < n {
+      acc = acc | (buf.unsafe_get(pos).to_int() << held)
+      pos += 1
+      held += 8
+      if held < 16 && pos < n {
+        acc = acc | (buf.unsafe_get(pos).to_int() << held)
+        pos += 1
+        held += 8
+      }
+    }
+    // Fewer than nine bits is not enough for the look-ahead, and a table
+    // lookup on a padded value names a symbol that was never in the stream —
+    // which is how a truncated stream decodes into something that looks right.
+    // The slow path is the one that knows how to say "not enough".
+    let entry = if held >= FAST_BITS {
+      lit.fast[acc & (FAST_SIZE - 1)]
+    } else {
+      -1
+    }
+    let mut sym = entry >> 4
+    if entry >= 0 {
+      let width = entry & 0xF
+      acc = acc >> width
+      held -= width
+    } else {
+      // A code longer than the look-ahead. Rare enough that the call and the
+      // state hand-off are cheaper than keeping a second-level table.
+      br.pos = pos
+      br.acc = acc
+      br.held = held
+      sym = lit.sym(br)
+      pos = br.pos
+      acc = br.acc
+      held = br.held
+      if sym < 0 {
+        raise @moonzip.Truncated(at=pos)
+      }
     }
     if sym < 256 {
       // The common case, and the one this loop exists for: with no limit there
       // is nothing to check, and the check costs a call per output byte.
-      if self.limit < 0 {
-        out.push(sym.to_byte())
+      if limit < 0 {
+        if olen >= cap {
+          self.produced = olen
+          self.grow(1)
+          out = self.out
+          cap = out.length()
+        }
+        out.unsafe_set(olen, sym.to_byte())
+        olen = olen + 1
       } else {
+        // The slow path counts the limit and so goes through the reader, whose
+        // output cursor is the field: hand the local one over first.
+        br.pos = pos
+        br.acc = acc
+        br.held = held
+        self.produced = olen
         self.push_out(sym.to_byte())
+        olen = self.produced
+        pos = br.pos
+        acc = br.acc
+        held = br.held
       }
+      have += 1
     } else if sym == 256 {
-      if self.final_block {
-        self.stage = Done
-      } else {
-        self.stage = Header
-      }
+      running = false
+      self.stage = if self.final_block { Done } else { Header }
     } else {
       let index = sym - 257
       if index >= 29 {
-        raise @moonzip.Code(at=self.br.at())
+        br.pos = pos
+        raise @moonzip.Code(at=pos)
       }
-      let extra_len = br.take(length_extra[index])
-      if extra_len < 0 {
-        raise @moonzip.Truncated(at=self.br.at())
+      let need = length_extra[index]
+      if need > 0 && held < need {
+        br.pos = pos
+        br.acc = acc
+        br.held = held
+        let extra = br.take(need)
+        if extra < 0 {
+          raise @moonzip.Truncated(at=br.at())
+        }
+        pos = br.pos
+        acc = br.acc
+        held = br.held
+        sym = length_base[index] + extra
+      } else {
+        sym = length_base[index] + (acc & ((1 << need) - 1))
+        acc = acc >> need
+        held -= need
       }
-      let len = length_base[index] + extra_len
-      let dcode = dist.sym(br)
-      if dcode < 0 {
-        raise @moonzip.Truncated(at=self.br.at())
+      let len = sym
+      let dentry = if held >= FAST_BITS {
+        dist.fast[acc & (FAST_SIZE - 1)]
+      } else {
+        -1
+      }
+      let mut dcode = dentry >> 4
+      if dentry >= 0 {
+        let width = dentry & 0xF
+        acc = acc >> width
+        held -= width
+      } else {
+        br.pos = pos
+        br.acc = acc
+        br.held = held
+        dcode = dist.sym(br)
+        pos = br.pos
+        acc = br.acc
+        held = br.held
+        if dcode < 0 {
+          raise @moonzip.Truncated(at=pos)
+        }
       }
       if dcode >= 30 {
-        raise @moonzip.Code(at=self.br.at())
+        br.pos = pos
+        raise @moonzip.Code(at=pos)
       }
-      let extra_dist = br.take(dist_extra[dcode])
-      if extra_dist < 0 {
-        raise @moonzip.Truncated(at=self.br.at())
+      let dneed = dist_extra[dcode]
+      let mut back = dist_base[dcode]
+      if dneed > 0 {
+        if held < dneed {
+          br.pos = pos
+          br.acc = acc
+          br.held = held
+          let extra = br.take(dneed)
+          if extra < 0 {
+            raise @moonzip.Truncated(at=br.at())
+          }
+          pos = br.pos
+          acc = br.acc
+          held = br.held
+          back += extra
+        } else {
+          back += acc & ((1 << dneed) - 1)
+          acc = acc >> dneed
+          held -= dneed
+        }
       }
-      let back = dist_base[dcode] + extra_dist
       // One measurement of how much has been produced, used for all three
       // questions the copy asks: is the distance in range, where does the copy
       // start, and would it run past the limit.
-      let have = self.produced()
       if back > have {
-        raise @moonzip.Distance(at=self.br.at())
+        br.pos = pos
+        raise @moonzip.Distance(at=pos)
       }
       // Copied a byte at a time on purpose: a run-length match overlaps
       // itself, and the bytes it copies are the ones this loop is writing.
@@ -1126,27 +1437,47 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
       // into the kept history, or one that would run past the limit, still
       // takes the slow road.
       let start = have - back
-      let kept = self.history.length()
-      if (self.limit < 0 || have + len <= self.limit) && start >= kept {
+      if (limit < 0 || have + len <= limit) && start >= kept {
         let base = start - kept
+        if olen + len > cap {
+          self.produced = olen
+          self.grow(len)
+          out = self.out
+          cap = out.length()
+        }
         if back >= len && len >= 16 {
           // A match that does not overlap itself is a block copy, and taking it
           // in one go is most of what a long match costs here.
-          let at = out.length()
-          out.resize(at + len, b'\x00')
-          out.unsafe_blit(at, out, base, len)
+          out.unsafe_blit(olen, out, base, len)
         } else {
           for k in 0..<len {
-            out.push(out[base + k])
+            out.unsafe_set(olen + k, out.unsafe_get(base + k))
           }
         }
+        olen = olen + len
+        have += len
       } else {
-        for k in 0..<len {
+        br.pos = pos
+        br.acc = acc
+        br.held = held
+        self.produced = olen
+        let mut k = 0
+        while k < len {
           self.push_out(self.byte_at(start + k))
+          k += 1
         }
+        olen = self.produced
+        pos = br.pos
+        acc = br.acc
+        held = br.held
+        have += len
       }
     }
   }
+  br.pos = pos
+  br.acc = acc
+  br.held = held
+  self.produced = olen
 }
 
 ///|
