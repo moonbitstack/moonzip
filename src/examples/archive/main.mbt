@@ -94,6 +94,36 @@ fn main raise {
     )
   }
 
+  // The same archive written a member at a time. The bytes each member produced
+  // leave as it is added; only the directory and the header wait for the end,
+  // because the header's first field is how much packed data there is.
+  let writer = @sevenz.Writer::new(how=@sevenz.Method::Lzma)
+  let body : Array[Byte] = []
+  for entry in solid {
+    for b in writer.add(entry) {
+      body.push(b)
+    }
+  }
+  let directory = writer.finish()
+  let start = writer.signature()
+  let assembled : Array[Byte] = []
+  for b in start {
+    assembled.push(b)
+  }
+  for b in body {
+    assembled.push(b)
+  }
+  for b in directory {
+    assembled.push(b)
+  }
+  let streamed = Bytes::from_array(assembled)
+  let streaming = @sevenz.Reader::new()
+  streaming.push(streamed[:])
+  let read_back = streaming.finish()
+  println(
+    "7z streamed: \{streamed.length()} bytes, \{read_back.length()} members, matches: \{read_back[0].data == solid[0].data}",
+  )
+
   // tar is the other half of the same idea, without the compressed members: one
   // header per file, then the bytes. A tarball is that archive through gzip.
   let files = [

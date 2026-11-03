@@ -249,6 +249,38 @@ fn archive(body : Bytes, variant : Int32) -> Bytes {
 }
 
 ///|
+/// A 7z archive written one entry at a time, assembled in the order the format
+/// requires: the signature header in front, then the folders, then the
+/// directory.
+fn stream_sevenz(kind : Int32) -> Bytes {
+  let writer = @sevenz.Writer::new(level=6)
+  let body : Array[Byte] = []
+  for
+    b in writer.add(
+      @sevenz.Entry::new("first.txt", sample(kind), mtime=1700000000L),
+    ) {
+    body.push(b)
+  }
+  for
+    b in writer.add(@sevenz.Entry::new("dir/second.txt", b"the second member")) {
+    body.push(b)
+  }
+  let tail = writer.finish()
+  let start = writer.signature()
+  let out : Array[Byte] = []
+  for b in start {
+    out.push(b)
+  }
+  for b in body {
+    out.push(b)
+  }
+  for b in tail {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
 fn main {
   for kind in 0..<7 {
     let body = sample(kind)
@@ -269,6 +301,7 @@ fn main {
         )
       }
     }
+    println("sevenz \{kind} \{@base16.encode(stream_sevenz(kind)[:])}")
     println("gzip \{kind} \{@base16.encode(@gzip.gzip(body[:])[:])}")
     println("zlib \{kind} \{@base16.encode(@zlib.zlib(body[:])[:])}")
     println("lzma \{kind} \{@base16.encode(@lzma.lzma(body[:])[:])}")

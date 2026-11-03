@@ -47,6 +47,17 @@ pub fn Method::label(Self) -> String
 pub fn Method::not_equal(Self, Self) -> Bool
 pub fn Method::to_repr(Self) -> @debug.Repr
 
+type Reader
+pub fn Reader::finish(Self) -> Array[Entry] raise @moonzip.Refused
+pub fn Reader::new(limit? : Int32) -> Self
+pub fn Reader::push(Self, BytesView) -> Unit raise @moonzip.Refused
+
+type Writer
+pub fn Writer::add(Self, Entry) -> Bytes
+pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::new(level? : Int32, how? : Method, solid? : Bool) -> Self
+pub fn Writer::signature(Self) -> Bytes
+
 // Type aliases
 
 // Traits

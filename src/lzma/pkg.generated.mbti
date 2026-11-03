@@ -47,7 +47,7 @@ pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
 
 type Writer
 pub fn Writer::finish(Self) -> Bytes
-pub fn Writer::new(level? : Int32) -> Self
+pub fn Writer::new(level? : Int32, header? : Bool) -> Self
 pub fn Writer::push(Self, BytesView) -> Bytes
 
 // Type aliases

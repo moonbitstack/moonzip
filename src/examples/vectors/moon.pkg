@@ -8,6 +8,7 @@ import {
   "moonbitstack/moonzip/gzip",
   "moonbitstack/moonzip/zlib",
   "moonbitstack/moonzip/zip",
+  "moonbitstack/moonzip/sevenz",
   "moonbitstack/moonzip/lz4",
   "moonbitstack/moonzip/snappy",
   "moonbitstack/moonzip/lzma",

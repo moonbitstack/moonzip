@@ -12,6 +12,7 @@ keywords = [
   "compression",
   "decompression",
   "archive",
+  "streaming",
   "zip",
   "gzip",
   "deflate",

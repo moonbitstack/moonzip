@@ -58,21 +58,23 @@ struct Writer {
 }
 
 ///|
-pub fn Writer::new(level~ : Int32 = 6) -> Writer {
+pub fn Writer::new(level~ : Int32 = 6, header~ : Bool = true) -> Writer {
   guard level >= 0 && level <= 9 else {
     abort("lzma: level \{level} is not between 0 and 9")
   }
   let dict = dictionary_for(level)
   let out : Array[Byte] = []
   let props = properties_of(3, 0, 2)
-  out.push(props.to_byte())
-  for i in 0..<4 {
-    out.push(((dict >> (i * 8)) & 0xFF).to_byte())
-  }
-  // All ones: the length is unknown, and the end marker says where the stream
-  // stops. Every writer that cannot know the size in advance writes this.
-  for _ in 0..<8 {
-    out.push(b'\xFF')
+  if header {
+    out.push(props.to_byte())
+    for i in 0..<4 {
+      out.push(((dict >> (i * 8)) & 0xFF).to_byte())
+    }
+    // All ones: the length is unknown, and the end marker says where the stream
+    // stops. Every writer that cannot know the size in advance writes this.
+    for _ in 0..<8 {
+      out.push(b'\xFF')
+    }
   }
   {
     level,

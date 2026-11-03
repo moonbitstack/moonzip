@@ -384,6 +384,17 @@ rejoined -> secret.txt, 14 bytes</pre>
       all, holds the dictionary a copy can reach into and carries its range coder
       from token to token.
     </p>
+    <p class="sub" style="margin-top:-8px">
+      The archive writers carry it too: <code>zip.Writer</code> and
+      <code>sevenz.Writer</code> hand back each member's bytes as the member is
+      added, so an archive is never held. A <code>sevenz.Writer</code> produces its
+      thirty-two-byte signature header last, though, because the field that says
+      where the directory sits is the length of the packed data — write the
+      members out as they come, then put <code>signature()</code> in front. The
+      matching reader is the one place the streaming is one-sided: a 7z directory
+      follows the folders it describes, so a reader cannot cut members until the
+      last byte has arrived.
+    </p>
 
     <div class="pair">
       <div class="pair__label">4 KiB out, 777 B in</div>

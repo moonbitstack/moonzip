@@ -57,80 +57,25 @@ pub fn sevenz(
   how~ : Method = Lzma,
   solid~ : Bool = true,
 ) -> Bytes {
-  let size = if level < 0 { 0 } else if level > 9 { 9 } else { level }
-  // Which entries carry data, in the order they were given.
-  let payloads : Array[Int32] = []
+  let writer = Writer::new(level~, how~, solid~)
+  let body : Array[Byte] = []
   for i in 0..<entries.length() {
-    if entries[i].kind == File && entries[i].data.length() > 0 {
-      payloads.push(i)
+    for b in writer.add(entries[i]) {
+      body.push(b)
     }
   }
-  let folders : Array[Packed] = []
-  let counts : Array[Int32] = []
-  let sizes : Array[Int64] = []
-  let crcs : Array[UInt32] = []
-  if solid && payloads.length() > 0 {
-    let body : Array[Byte] = []
-    for i in payloads {
-      for b in entries[i].data {
-        body.push(b)
-      }
-      sizes.push(entries[i].data.length().to_int64())
-      crcs.push(@moonzip.crc32(entries[i].data[:]))
-    }
-    let joined = Bytes::from_array(body)
-    folders.push(pack(joined, size, how))
-    counts.push(payloads.length())
-  } else {
-    for i in payloads {
-      folders.push(pack(entries[i].data, size, how))
-      counts.push(1)
-      sizes.push(entries[i].data.length().to_int64())
-      crcs.push(@moonzip.crc32(entries[i].data[:]))
-    }
-  }
-  // An archive of nothing has no directory at all: the signature header says
-  // "nothing follows", which is four bytes shorter than an empty file table and
-  // is what 7-Zip writes.
-  let header = if entries.length() == 0 {
-    b""
-  } else {
-    build_header(entries, folders, counts, sizes, crcs)
-  }
-  // The signature header, then the packed streams, then the directory. The order
-  // is the format's, and it is what lets a reader that only wants the names seek
-  // to the end and never touch the data.
+  // The directory and the signature header describe what the folders turned
+  // out to be, so both are made once every entry has been written.
+  let tail = writer.finish()
+  let start = writer.signature()
   let out : Array[Byte] = []
-  for b in magic {
-    out.push(b.to_byte())
-  }
-  out.push(b'\x00')
-  out.push(b'\x04')
-  // The three fields after the checksum: where the directory starts, how long it
-  // is, and its checksum. Their checksum goes in front of them, which is why the
-  // first four bytes of an archive are computed over the next twenty.
-  let start : Array[Byte] = []
-  for b in le64(folders_data_size(folders)) {
-    start.push(b)
-  }
-  for b in le64(header.length().to_int64()) {
-    start.push(b)
-  }
-  for b in le32(@moonzip.crc32(header[:])) {
-    start.push(b)
-  }
-  for b in le32(@moonzip.crc32(Bytes::from_array(start)[:])) {
-    out.push(b)
-  }
   for b in start {
     out.push(b)
   }
-  for folder in folders {
-    for b in folder.data {
-      out.push(b)
-    }
+  for b in body {
+    out.push(b)
   }
-  for b in header {
+  for b in tail {
     out.push(b)
   }
   Bytes::from_array(out)
@@ -164,50 +109,6 @@ fn le64(value : Int64) -> Array[Byte] {
 }
 
 ///|
-/// Compress one folder's worth of bytes and describe the coder that did it.
-fn pack(data : Bytes, level : Int32, how : Method) -> Packed {
-  match how {
-    Copy =>
-      {
-        coder: { codec: [0x00], props: b"", num_in: 1, num_out: 1, },
-        data,
-        unpacked: data.length().to_int64(),
-      }
-    Lzma => {
-      let dictionary = @lzma.dictionary_for(level)
-      let props = @lzma.properties_of(3, 0, 2)
-      let settings : Array[Byte] = [props.to_byte()]
-      for b in le32(dictionary.reinterpret_as_uint()) {
-        settings.push(b)
-      }
-      {
-        coder: {
-          codec: [0x03, 0x01, 0x01],
-          props: Bytes::from_array(settings),
-          num_in: 1,
-          num_out: 1,
-        },
-        data: @lzma.encode(data[:], props, dictionary, level~),
-        unpacked: data.length().to_int64(),
-      }
-    }
-    Lzma2 => {
-      let dictionary = @lzma.dictionary_for(level)
-      {
-        coder: {
-          codec: [0x21],
-          props: Bytes::from_array([@lzma.dict_code(dictionary).to_byte()]),
-          num_in: 1,
-          num_out: 1,
-        },
-        data: @lzma.lzma2(data[:], dictionary, level),
-        unpacked: data.length().to_int64(),
-      }
-    }
-  }
-}
-
-///|
 /// The directory.
 ///
 /// Written uncompressed, which is the one place this writer takes the simple
@@ -216,6 +117,7 @@ fn pack(data : Bytes, level : Int32, how : Method) -> Packed {
 /// one a writer should emit when the size does not matter.
 fn build_header(
   entries : ArrayView[Entry],
+  blanks : Array[Bool],
   folders : Array[Packed],
   counts : Array[Int32],
   sizes : Array[Int64],
@@ -296,10 +198,13 @@ fn build_header(
   out.uint64(entries.length().to_int64())
   let empty_stream : Array[Bool] = []
   let empty_file : Array[Bool] = []
-  for entry in entries {
-    let blank = entry.kind == Directory || entry.data.length() == 0
+  for i in 0..<entries.length() {
+    // Whether a member has data is the caller's to say: the directory is built
+    // from the names and times the writer was given, at a point where the data
+    // itself has long been compressed and let go.
+    let blank = blanks[i]
     empty_stream.push(blank)
-    empty_file.push(blank && entry.kind == File)
+    empty_file.push(blank && entries[i].kind == File)
   }
   if any(empty_stream) {
     out.byte(k_empty_stream)
