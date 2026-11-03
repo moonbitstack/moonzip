@@ -115,12 +115,17 @@ it.
 | `bzip2` | one block | 100–900 KiB, by level |
 | `brotli` | one meta-block, plus the window | 1 MiB, plus the window |
 | `lzma` | the dictionary | 64 KiB – 8 MiB, by level |
+| `7z` | one folder | the folder's dictionary |
 
 `zip` has a writer that hands back each member's bytes as it adds them and a
 reader that walks local headers from the front, which is the only way to read an
-archive that is still arriving. `7z` is the exception: its folder layout is
-written once, after the whole directory is known, so it takes a buffer and gives
-one back.
+archive that is still arriving. `7z` has the same writer — `add` hands back the
+compressed bytes each entry produced — but it cannot have the same reader: a 7z
+directory is written *after* the folders it describes, so nothing can be cut into
+members until the last byte has arrived. Its reader takes the archive a piece at
+a time, refuses a file that is not one on the first six bytes, and decodes folder
+by folder when the directory shows up, keeping one folder's output rather than the
+whole archive's.
 
 A chunk boundary may fall inside a header field, inside a Huffman code, inside a
 stored block, or between a member's data and its data descriptor. The tests feed
@@ -326,6 +331,43 @@ across two files is paid for once and neither can be read without the other.
 @sevenz.names(archive[:])      // the directory only, without touching the data
 ```
 
+Both of those hold the whole thing: every member, every folder's compressed form,
+and the directory, before anything comes back. The streaming pair does not.
+
+```moonbit
+let w = @sevenz.Writer::new(level=6)
+let mut body : Array[Byte] = []
+for entry in members {
+  for b in w.add(entry) {
+    body.push(b)          // compressed as it arrives; write it out here
+  }
+}
+let directory = w.finish()
+let start = w.signature()  // the thirty-two bytes that go in front
+```
+
+The order is the format's, not a choice. A 7z archive opens with a thirty-two byte
+header that says where the directory sits — which is the length of the packed data,
+a number nobody has until the last folder is written — so those bytes are produced
+last and placed first. `signature` before `finish` aborts rather than returning
+something plausible.
+
+```moonbit
+let r = @sevenz.Reader::new(limit=1 << 26)
+for piece in pieces {
+  r.push(piece[:])        // the signature is checked on the first six bytes
+}
+let members = r.finish()
+```
+
+A reader cannot do better than that here, and it is worth saying why: the directory
+comes *after* the folders it describes, so no member's boundary is known until the
+last byte has arrived. What the reader streams is the input and the decoding — it
+keeps one folder's output at a time rather than the whole archive's, and it refuses
+a file that is not a 7z archive on its first six bytes rather than after a
+gigabyte of them. A writer, which *does* know the order in advance, streams
+properly: an entry is compressed as it arrives and its bytes leave immediately.
+
 The reader understands folders whose coders are a straight chain, over **COPY,
 LZMA, LZMA2, BZIP2, DEFLATE and the delta filter**, and reads real 7z archives
 including ones whose directory is itself a compressed stream — which is the normal
@@ -488,23 +530,28 @@ On this repository's own documentation — README, homepage and guide, about
 107 KB, which is what the pages you are reading add up to — quality 9 gives
 28.0 KB against the reference encoder's 28.0 KB on the same bytes: level, which
 is where a writer and its reference meet when the models match. Quality 11 gives
-26.5 KB against the reference's 25.4 KB.
+25.7 KB against the reference's 25.4 KB.
 
-That 4.6% is what is left of the parse. The reference searches every match its
-hash chain holds, prices literals per position from a model it refits on each
-pass, and carries the ring of recent distances through the search itself. This
-one keeps six candidates per position, prices literals from the previous round's
-context codes, and prices a distance at what a *repeat* costs.
+That 1.3% is what is left of the parse. **The ring of recent distances is part of
+the search**: a copy that names one of the last four distances costs two to six
+bits instead of five to twenty, and those distances are not in the match list —
+the chain was built before the parse decided anything — so all sixteen short
+codes are tried at every position, against the ring the cheapest path there would
+have left behind. **The insert run is a state**: the search keeps the eight
+cheapest positions a command could have ended at, ordered by what they cost
+beyond coding the bytes in between as literals, and tries the copies from each,
+because a command's insert length is coded jointly with its copy length. And the
+candidate list is thirty-two matches deep rather than six.
 
-The last of those is a choice worth naming. Charging each copy the width of the
-distance symbol it would need is the obvious model and it is the wrong one,
-because it is self-fulfilling: a round that priced fresh distances at ten bits
-finds a parse that uses fewer of them, the next round's distance tree is flatter
-and prices them higher still, and the search walks into a corner where almost
-nothing is a copy. On this corpus the exact model comes out three and a half per
-cent larger than the repeat-price one — same search, same corpus, one line of the
-price list apart. The reference encoder's own search dodges the same trap from the
-other side, pricing commands and distances at zero on its first pass.
+Those three are what make pricing a distance at the symbol it takes safe. The
+obvious model — charge each copy the width of the distance symbol it needs — is
+self-fulfilling when the search cannot *reach* a cheap distance: a round that
+priced fresh distances at ten bits finds a parse that uses fewer of them, the next
+round's distance tree is flatter and prices them higher still, and the search
+walks into a corner where almost nothing is a copy. Measured on this corpus
+without the ring in the search, the exact model came out three and a half per cent
+*larger* than one that priced every distance as a repeat. With the ring in the
+search the question answers itself: the cheap distances are there to be found.
 
 Every new form is checked against the reference decoder, not just this one: a
 quality-11 stream over a 101 KB body, whose header declares two block types and a
@@ -574,36 +621,44 @@ two between runs — so read them as orders of magnitude.
 
 | Codec | Write MB/s | Read MB/s |
 |:--|--:|--:|
-| `deflate` | 8.8 | 89 |
-| `gzip` | 8.3 | 70 |
-| `zlib` | 8.4 | 79 |
-| `zstd` | 17 | 43 |
-| `brotli` (quality 9) | 1.4 | 50 |
+| `deflate` | 16 | 150 |
+| `gzip` | 16 | 107 |
+| `zlib` | 14 | 130 |
+| `zstd` | 17 | 35 |
+| `brotli` (quality 9) | 1.1 | 52 |
 
 The same body through C zlib on the same machine — `zlib.compress(_, 6)` from
-Python, median of ten — writes at about 16 MB/s and reads at 349. The deflate
-writer is therefore within a factor of two of zlib, and the reader is at a
-quarter of its decode rate: 85 to 92 MB/s against 349, measured in the same
-session.
+Python, median of ten, which `scripts/throughput_reference.py` reproduces — writes
+at about 16 MB/s and reads at 349. The deflate writer is therefore at zlib's own
+write rate, and reads at something under half of its decode rate: 143 to 153 MB/s
+against 349, measured in the same session.
 
-Five things earned that, and the last is the one that mattered most. The reader
-used to copy everything a push decoded into its history and then keep only the
-last 32 KiB of it, which on a body pushed once is a megabyte of copies that
-nothing could ever read — a back-reference reaches one window back. Keeping the
-tail instead of the whole made the difference between a fifth of zlib and a
-quarter. The Huffman decoder now looks nine bits ahead and names most codes with
-a single table lookup instead of walking them a bit at a time. A match is copied
-with its two per-byte branches — "is this byte in the kept history or the output",
-"has the limit been reached" — hoisted out of the loop, since the whole match
-answers both once. The symbol loop runs in its own function, so the stage machine
-is not re-entered — and the buffer guard paid again — for every byte of output.
-And the look-ahead itself, which broke the compressed-to-stored
-transition the first time it was attempted: pulling bytes into the accumulator is
-fine until `align` throws that accumulator away and takes whole bytes of the stored
-block's payload with it. The mistake was to conclude that the reader cannot look
-ahead. It is that `align` has to hand those bytes back by rewinding the read
-position — and so does `rest`, which returns a container's trailer, because a
-trailer is exactly what a look-ahead leaves in the accumulator.
+Everything there is a constant factor, and all of it is in the two loops that
+touch one byte at a time. **Writing**: a match is compared four bytes at a time
+through an unaligned word read rather than byte by byte, which is where a match
+finder spends its time; the Huffman codes are reversed once when the table is
+built instead of per symbol; the length and distance symbols are table lookups;
+the bit writer holds a buffer it doubles instead of pushing bytes through a
+growable array; and the block that wins the auto choice is spliced into the stream
+rather than written a second time. **Reading**: the block loop holds the bit
+state, the tables and the output cursor in locals instead of reloading them from
+three structs per symbol, and writes into a buffer of its own rather than through
+a growable array's push. And the one-shot `inflate` no longer copies its result
+into a fresh array to append nothing to it.
+
+Two earlier changes are still what make the reader worth having. It keeps the last
+32 KiB of what it decoded instead of all of it — a back-reference reaches one
+window back, so the rest was a megabyte of copies nothing could read. And the
+Huffman decoder looks nine bits ahead, naming most codes with one lookup. The
+look-ahead is also what broke the compressed-to-stored transition the first time:
+pulling bytes into the accumulator is fine until `align` throws that accumulator
+away and takes whole bytes of the stored block's payload with it. The mistake was
+to conclude that the reader cannot look ahead. It is that `align` has to hand
+those bytes back by rewinding the read position — and so does `rest`, because a
+trailer is exactly what a look-ahead leaves in the accumulator — and that a reader
+which stops with whole bytes still in the accumulator has to un-pull them before it
+drops what it has consumed. That last one is a bug this reader had for as long as
+it looked ahead at all, and only a body fed one byte at a time found it.
 
 `brotli`'s write rate is the price of its search: quality 9 walks up to 256 chain
 candidates at each position. `quality=1` is several times faster for a few per cent
