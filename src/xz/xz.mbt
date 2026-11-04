@@ -9,11 +9,12 @@
 /// SHA-256 is in the format and is read here without being verified, because
 /// verifying it would mean carrying a hash function this library does not have —
 /// the stream still decodes, and the gap is stated rather than hidden.
+#derive(Eq, Debug)
 pub(all) enum Check {
   None
   Crc32
   Crc64
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Check with Eq::{equal, not_equal}

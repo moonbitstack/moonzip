@@ -14,12 +14,13 @@ pub fn inflate(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
 // Errors
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum Blocks {
   Auto
   Fixed
   Dynamic
   Stored
-} derive(Eq, @debug.Debug)
+}
 pub fn Blocks::equal(Self, Self) -> Bool
 pub fn Blocks::not_equal(Self, Self) -> Bool
 pub fn Blocks::to_repr(Self) -> @debug.Repr

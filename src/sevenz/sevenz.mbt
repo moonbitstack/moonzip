@@ -4,10 +4,11 @@
 ///|
 /// What an entry is. 7-Zip records it in the file attributes rather than in a
 /// type field, which is why this is derived rather than read.
+#derive(Eq, Debug)
 pub(all) enum Kind {
   File
   Directory
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Kind with Eq::{equal, not_equal}
@@ -20,6 +21,7 @@ pub extend Kind with Debug::{to_repr}
 ///
 /// `data` is empty for a directory and for a file that had no content, which are
 /// two different things: `kind` tells them apart, and `size` does not.
+#derive(Eq, Debug)
 pub(all) struct Entry {
   name : String
   data : Bytes
@@ -31,7 +33,7 @@ pub(all) struct Entry {
   /// The Windows attribute word, kept because it is the only place 7-Zip records
   /// "hidden", "read-only" and "directory".
   attributes : UInt32
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Entry with Eq::{equal, not_equal}

@@ -5,6 +5,7 @@
 /// How the writer compresses. 7z is a container, so this is a choice rather than
 /// a property of the format: the same archive can hold a folder of LZMA and a
 /// folder of copies.
+#derive(Eq, Debug)
 pub(all) enum Method {
   /// Nothing at all. The folder exists so the file table has something to point
   /// at, which is what makes a `.7z` a `.7z` even uncompressed.
@@ -13,7 +14,7 @@ pub(all) enum Method {
   Lzma
   /// LZMA2, the chunked form. Same codec, resettable state.
   Lzma2
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Method with Eq::{equal, not_equal}

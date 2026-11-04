@@ -7,6 +7,7 @@
 /// The offset is where the reader was when it gave up, in bytes from the start
 /// of the stream — enough to find the damage in a file, which "corrupt data" is
 /// not.
+#derive(Eq, Debug)
 pub(all) suberror Refused {
   /// The stream ends in the middle of something.
   Truncated(at~ : Int32)
@@ -26,7 +27,7 @@ pub(all) suberror Refused {
   /// nothing about how far it expands, so a reader handling input from
   /// elsewhere says how much it is prepared to hold.
   TooBig(limit~ : Int32)
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Refused with Eq::{equal, not_equal}

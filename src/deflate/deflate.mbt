@@ -7,6 +7,7 @@
 /// A DEFLATE stream is a run of blocks, and a block may be stored verbatim,
 /// coded with the fixed Huffman table, or coded with a table of its own. All
 /// three are ordinary DEFLATE; they differ only in size.
+#derive(Eq, Debug)
 pub(all) enum Blocks {
   /// Let the writer choose per block: it writes each candidate, measures, and
   /// keeps the smallest. This is what zlib does, and on the short bodies a
@@ -24,7 +25,7 @@ pub(all) enum Blocks {
   /// `level = 0` means, and asking for it by name is the way to say it without
   /// going through a level.
   Stored
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Blocks with Eq::{equal, not_equal}

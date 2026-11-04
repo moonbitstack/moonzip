@@ -9,6 +9,7 @@
 /// meet are here; the rest are kept as `Other` so that reading an
 /// archive with a device node in it does not fail, and so that writing one back
 /// out produces what came in.
+#derive(Eq, Debug)
 pub(all) enum Tarball {
   /// A regular file. The only one with bytes in it.
   File
@@ -20,7 +21,7 @@ pub(all) enum Tarball {
   Hardlink
   /// A character or block device, a FIFO, or a type this package does not name.
   Other(Byte)
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Tarball with Eq::{equal, not_equal}
@@ -30,6 +31,7 @@ pub extend Tarball with Debug::{to_repr}
 
 ///|
 /// One member of an archive.
+#derive(Eq, Debug)
 pub(all) struct Entry {
   /// The path inside the archive, with forward slashes.
   name : String
@@ -51,7 +53,7 @@ pub(all) struct Entry {
   gname : String
   /// The target of a link.
   link : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Entry with Eq::{equal, not_equal}

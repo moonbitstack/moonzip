@@ -11,6 +11,7 @@
 /// The two that are actually in use. APPNOTE.TXT names a dozen more — shrink,
 /// implode, six reduce levels — and no tool has written one since the 1990s; a
 /// reader that meets one refuses it rather than guessing.
+#derive(Eq, Debug)
 pub(all) enum Kind {
   /// Not compressed. What an already-compressed member should use: running
   /// DEFLATE over a JPEG costs time and makes it bigger.
@@ -21,7 +22,7 @@ pub(all) enum Kind {
   /// bzip2 is 12, LZMA is 14. A [`Codec`] handles it; without one, reading such
   /// an entry is refused rather than guessed at.
   Other(Int32)
-} derive(Eq, Debug)
+}
 
 ///|
 /// A compression method beyond the two built in.
@@ -61,6 +62,7 @@ pub extend Kind with Debug::{to_repr}
 /// `data` is the content itself: decompressed when read, as-is when written.
 /// An archive is a directory of whole files, so handing back half of one would
 /// be handing back something that is not the file.
+#derive(Eq, Debug)
 pub(all) struct Entry {
   /// The path inside the archive, with forward slashes — APPNOTE.TXT §4.4.17
   /// says so, on every platform.
@@ -75,7 +77,7 @@ pub(all) struct Entry {
   mtime : Int64
   /// The per-entry comment, which most archives leave empty.
   comment : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Entry with Eq::{equal, not_equal}
