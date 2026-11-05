@@ -639,42 +639,41 @@ finder, which loses the cross-block matches a repetitive body lives on.
 
 Sizes are one axis; the other is time. These are release-build numbers from
 `src/examples/throughput` — the median of ten runs after a warm-up, over a 1.5 MB
-body of words and numbers that compresses 3.4 to 1. A rate on a shared machine is a
-range rather than a constant, and this one moves by a third between runs, so read
-them as orders of magnitude and compare the two columns rather than the digits.
+body of words and numbers that compresses 3.4 to 1 — on two machines: the runner
+the project's CI measures on, and a laptop. A rate moves by a third between runs on
+either, so read them as orders of magnitude, and compare the columns of one machine
+rather than the two machines against each other.
 
-| Codec | Write MB/s | Read MB/s |
-|:--|--:|--:|
-| `deflate` | 8.5 | 80 |
-| `gzip` | 9.0 | 63 |
-| `zlib` | 8.6 | 65 |
-| `zstd` | 8.7 | 24 |
-| `brotli` (quality 9) | 0.3 | 27 |
+| Codec | Write, CI | Read, CI | Write, laptop | Read, laptop |
+|:--|--:|--:|--:|--:|
+| `deflate` | 18 | 190 | 8.5 | 80 |
+| `gzip` | 17 | 129 | 9.0 | 63 |
+| `zlib` | 18 | 171 | 8.6 | 65 |
+| `zstd` | 29 | 83 | 8.7 | 24 |
+| `brotli` (quality 9) | 1.4 | 103 | 0.3 | 27 |
 
-The same body through C zlib on the same machine, in the same session —
-`zlib.compress(_, 6)` and `zlib.decompress` from Python, which
-`scripts/throughput_reference.py` reproduces — writes at 10 MB/s and reads at 206.
-The deflate writer is therefore within a tenth of zlib's own write rate, and the
-reader is a little under half of its decode rate.
+On the CI host the same body through C zlib — `zlib.compress(_, 6)` and
+`zlib.decompress` from Python, which `scripts/throughput_reference.py` reproduces
+and the same job runs — writes at 20 MB/s and reads at **349**. The deflate writer
+is therefore within a tenth of zlib's own write rate, and the reader is at 190, a
+little over half of it.
 
-Half is where the decoder got to. It was a third before this batch, and the
-difference is per symbol rather than per byte: the bit accumulator is sixty-four
-bits and is refilled eight bytes at a time, the code tables are two levels deep so
-that no symbol is ever found by walking its bits, and every table, cursor and bit
-count is a local so that writing an output byte does not force the compiler to
-reload them.
+That is what the reader was rebuilt for. It read 143 to 153 on the same host before
+this batch, and the cost was per symbol rather than per byte:
 
 | | Before | After |
 |:--|--:|--:|
-| `deflate` read, this body | 57.6 | 80 |
-| symbols found by walking bits | one in ten | none |
-| stored-block copy | one byte at a time | eight |
+| `deflate` read, CI | 150 | 190 |
+| the bit accumulator | 32 bits, a byte at a time | 64 bits, eight at a time |
+| codes longer than the look-ahead | walked a bit at a time | one more table |
+| table reads between symbols | bounds-checked, from fields | unchecked, from locals |
+| a stored block's payload | one byte at a time | eight |
 
-The rest of the gap is the parse, not the reader: `deflate` prefers many short
+What is left of the gap is the parse, not the reader. `deflate` prefers many short
 matches to one long one — 206,000 of the 208,000 tokens in this body are matches
-averaging seven bytes — so a decoder is asked to do more per byte here than a
-parse that folds those seven bytes into one token would ask. That is a property of
-the writer, and its bytes are pinned by tests, so this batch left it alone.
+averaging seven bytes — so a decoder is asked to do more per byte here than a parse
+that folds those seven bytes into one token would ask. That is a property of the
+writer, and its bytes are pinned by tests, so this batch left it alone.
 
 `brotli`'s write rate is the price of its search: quality 9 walks up to 256 chain
 candidates at each position. `quality=1` is several times faster for a few per cent
