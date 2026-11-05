@@ -284,26 +284,38 @@ fn code_lengths(freq : Array[Int32], limit : Int32) -> FixedArray[Int32] {
     }
     return lengths
   }
-  // Force the over-deep codes up and pay for the room, as above.
-  let bl = FixedArray::make(limit + 1, 0)
-  let mut overflow = 0
+  // A tree deeper than the format allows is repaired by two moves that each
+  // leave the Kraft sum untouched: the two deepest leaves become their parent,
+  // which is one leaf shorter, and the shallowest leaf becomes two children,
+  // which gives that leaf back. The first shortens the longest code and the
+  // second keeps the number of symbols, so the pair is a complete prefix code
+  // throughout — the property a decoder checks, and the one a repair that only
+  // moves the depth around loses. The result is a fraction of a bit off optimal
+  // on the rare alphabet skewed enough to need it.
+  let bl = FixedArray::make(longest + 2, 0)
   for i in 0..<count {
-    if leaf_depth[i] > limit {
-      overflow += 1
-      bl[limit] += 1
-    } else {
-      bl[leaf_depth[i]] += 1
-    }
+    bl[leaf_depth[i]] += 1
   }
-  while overflow > 0 {
-    let mut bits = limit - 1
-    while bl[bits] == 0 {
-      bits -= 1
+  let mut deepest = longest
+  while deepest > limit {
+    if bl[deepest] < 2 {
+      // A level that is not a sibling pair cannot be folded; a tree built by
+      // merging pairs never has one, and folding it anyway would over-subscribe
+      // the code.
+      deepest -= 1
+      continue
     }
-    bl[bits] -= 1
-    bl[bits + 1] += 2
-    bl[limit] -= 1
-    overflow -= 2
+    bl[deepest] -= 2
+    bl[deepest - 1] += 1
+    if bl[deepest] == 0 {
+      deepest -= 1
+    }
+    let mut shallow = 1
+    while bl[shallow] == 0 {
+      shallow += 1
+    }
+    bl[shallow] -= 1
+    bl[shallow + 1] += 2
   }
   // Shorter widths go to the symbols that were shallower in the tree.
   for i in 1..<count {
