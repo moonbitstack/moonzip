@@ -8,3 +8,9 @@
 import {
   "moonbitstack/moonzip",
 }
+
+import {
+  "moonbitstack/moonzip/deflate",
+  "moonbitstack/moonbase/base16",
+  "moonbitlang/core/encoding/utf8",
+} for "test"

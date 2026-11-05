@@ -405,6 +405,55 @@ pub fn Writer::finish(self : Writer) -> Bytes {
 }
 
 ///|
+/// End the message here, without ending the stream: `Z_SYNC_FLUSH`.
+///
+/// What has arrived is compressed and handed back, the bit state is padded to a
+/// byte boundary, and an empty stored block closes the message — the four bytes
+/// `00 00 FF FF` a synchronising flush is. Nothing is finished: the writer still
+/// holds its window, so the next message may reach back into this one, and
+/// [`finish`](#finish) may still be called at the end of the last one.
+///
+/// A sender that wants the other convention — no context carried between
+/// messages — calls [`reset`](#reset) after this.
+pub fn Writer::flush(self : Writer) -> Bytes {
+  guard !self.closed else { abort("deflate: the writer is finished") }
+  if self.buf.length() > self.from {
+    // Everything that has arrived becomes a block of its own, because a flush is
+    // defined as ending the current block. The window is kept, so this block
+    // still matches against what came before the message boundary.
+    emit_block(
+      self.bw,
+      self.buf,
+      Bytes::from_array(self.buf[:]),
+      self.from,
+      self.buf.length(),
+      self.window,
+      self.finder,
+      self.blocks,
+      false,
+    )
+    self.from = self.buf.length()
+    self.retain()
+  }
+  self.bw.sync()
+  self.bw.take()
+}
+
+///|
+/// Forget the window, so that the next message is compressed as a stream of its
+/// own. The output is unchanged in kind — it is the same bytes a fresh writer
+/// would have produced for the next message — and the cost of the next message's
+/// first block goes up by everything it could have matched against this one.
+///
+/// Only meaningful at a message boundary, which is where a flush has left the bit
+/// state: calling it mid-message would leave the stream carrying a partial byte.
+pub fn Writer::reset(self : Writer) -> Unit {
+  guard !self.closed else { abort("deflate: the writer is finished") }
+  self.buf = []
+  self.from = 0
+}
+
+///|
 /// How much input a streaming writer holds before emitting a block.
 let chunk : Int32 = 32768
 
@@ -927,6 +976,14 @@ struct Reader {
   mut at : Int32
   /// A stored block's payload still to copy.
   mut stored_left : Int32
+  /// Whether that block was empty, which is what a synchronising flush ends a
+  /// message with.
+  mut stored_empty : Bool
+  /// Whether the caller is decoding one message and expects it to end at a
+  /// synchronising flush.
+  mut boundary : Bool
+  /// Set when that flush has just been consumed.
+  mut synced : Bool
   limit : Int32
   mut at_end : Bool
   /// Output already handed back, kept as far as a back-reference reaches.
@@ -955,6 +1012,9 @@ pub fn Reader::new(limit? : Int32) -> Reader {
     code_len: fixed_dist,
     at: 0,
     stored_left: -1,
+    stored_empty: false,
+    boundary: false,
+    synced: false,
     limit: match limit {
       Some(n) => n
       None => -1
@@ -1005,6 +1065,53 @@ pub fn Reader::rest(self : Reader) -> Bytes {
 /// before it looks for a trailer.
 pub fn Reader::done(self : Reader) -> Bool {
   self.stage is Done
+}
+
+///|
+/// Decode one message, which ends at a `Z_SYNC_FLUSH`.
+///
+/// This is the receiving half of [`Writer::flush`](#flush): the bytes up to and
+/// including the empty stored block are consumed, what they decoded is handed
+/// back, and the reader keeps its window — so the next message may refer back
+/// into this one, which is what a persistent context buys on a connection that
+/// sends many small messages. A message that ends anywhere else is refused, and
+/// the offset says where.
+///
+/// A receiver that wants the other convention, no context carried over, calls
+/// [`reset`](#reset) between messages.
+pub fn Reader::flush(
+  self : Reader,
+  data : BytesView,
+) -> Bytes raise @moonzip.Refused {
+  guard !self.at_end else { abort("deflate: the reader is finished") }
+  self.br.push(data)
+  self.boundary = true
+  self.synced = false
+  let was_at_end = self.at_end
+  self.at_end = true
+  self.decode()
+  self.at_end = was_at_end
+  self.boundary = false
+  if !self.synced {
+    raise @moonzip.Truncated(at=self.br.at())
+  }
+  self.synced = false
+  self.take()
+}
+
+///|
+/// Forget the window, so that the next message is read as a stream of its own.
+///
+/// Only meaningful at a message boundary, which is where [`flush`](#flush) leaves
+/// the reader: the bit state is empty there, because a synchronising flush ends on
+/// a byte boundary.
+pub fn Reader::reset(self : Reader) -> Unit {
+  guard !self.at_end else { abort("deflate: the reader is finished") }
+  self.history = []
+  self.br.acc = 0UL
+  self.br.held = 0
+  self.stored_left = -1
+  self.stored_empty = false
 }
 
 ///|
@@ -1248,6 +1355,7 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
             )
           }
           self.stored_left = len
+          self.stored_empty = len == 0
         }
         self.grow(self.stored_left)
         let took = self.br.take_bytes(self.out, self.produced, self.stored_left)
@@ -1265,6 +1373,12 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
             self.stage = Done
           } else {
             self.stage = Header
+            if self.boundary && self.stored_empty {
+              // The empty stored block a `Z_SYNC_FLUSH` ends a message with. The
+              // stream continues after it, but this message does not.
+              self.synced = true
+              return
+            }
           }
         }
       }

@@ -123,6 +123,27 @@ def main():
                 failed += 1
                 print("FAIL zip {} variant={}: {}".format(kind, variant, why))
                 continue
+        if form == "messages":
+            # Each line carries the messages one body was sent as, each ended by a
+            # synchronising flush. `keep` lets the later ones refer back into the
+            # earlier ones, so one decoder sees the whole run; `reset` starts the
+            # window over at every message, so each has to stand on its own.
+            mode, kind = parts[1], int(parts[2])
+            pieces = [bytes.fromhex(h) for h in parts[3:]]
+            want = sample(kind)
+            if mode == "keep":
+                shared = zlib.decompressobj(-15)
+                got = b"".join(shared.decompress(piece) for piece in pieces)
+            else:
+                got = b"".join(
+                    zlib.decompressobj(-15).decompress(piece) for piece in pieces
+                )
+            what = "messages {} {}".format(mode, kind)
+            checked += 1
+            if got != want:
+                failed += 1
+                print("FAIL {}: {} bytes, want {}".format(what, len(got), len(want)))
+            continue
         if form == "stream":
             # Written a piece at a time, so the boundaries are not the ones a
             # single call would produce — still one stream, still has to read

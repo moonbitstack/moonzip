@@ -104,6 +104,20 @@ fn BitWriter::raw_range(
 }
 
 ///|
+/// End the current block without ending the stream: the empty stored block a
+/// synchronising flush is. Three header bits, padding to the byte boundary, then
+/// a length of zero and its complement — the `00 00 FF FF` every streaming
+/// compressor recognises (RFC 1951 §3.2.4, and zlib's own flush).
+fn BitWriter::sync(self : BitWriter) -> Unit {
+  self.bits(0, 3)
+  while self.held > 0 {
+    self.bits(0, 1)
+  }
+  self.bits(0, 16)
+  self.bits(0xFFFF, 16)
+}
+
+///|
 /// Take the bytes written so far, leaving the partial byte in the accumulator.
 /// This is what a streaming writer hands its caller.
 fn BitWriter::take(self : BitWriter) -> Bytes {

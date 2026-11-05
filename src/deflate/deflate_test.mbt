@@ -199,3 +199,197 @@ test "every level decodes and no level loses to a shallower one" {
     previous = packed.length()
   }
 }
+
+///|
+/// Two messages on one connection, decoded by a reader that keeps its window.
+///
+/// The pattern `permessage-deflate` needs: each message ends with a synchronising
+/// flush rather than a final block, and the second message is allowed to match
+/// against the first. Nothing is finished until the last message is.
+test "a message ends at a flush and the next one reaches back into it" {
+  let first = @utf8.encode("the quick brown fox jumps over the lazy dog. ")
+  let second = @utf8.encode("the quick brown fox jumps over the lazy dog. ")
+  let writer = @deflate.Writer::new(level=6)
+  let head = writer.push(first[:])
+  let edge = writer.flush()
+  let tail = writer.push(second[:])
+  let end = writer.flush()
+  // A synchronising flush ends with an empty stored block: three header bits,
+  // padding to the byte boundary, then a length of zero and its complement.
+  assert_eq(end[end.length() - 4:], b"\x00\x00\xff\xff")
+  let reader = @deflate.Reader::new()
+  assert_eq(reader.flush(head + edge), first)
+  assert_eq(reader.flush(tail + end), second)
+  // The last message is ended the way a stream is, so the reader is over.
+  assert_eq(writer.finish().length() > 0, true)
+}
+
+///|
+/// The second message of a retained context is smaller than the same body
+/// compressed on its own, which is the whole point of keeping it.
+test "a retained window pays for itself" {
+  let body = @utf8.encode("the quick brown fox jumps over the lazy dog. ")
+  let kept = @deflate.Writer::new(level=6)
+  let _ = kept.push(body[:])
+  let _ = kept.flush()
+  let repeated = kept.push(body[:])
+  let edge = kept.flush()
+  let fresh = @deflate.Writer::new(level=6)
+  let alone = fresh.push(body[:])
+  let lone_edge = fresh.flush()
+  assert_true(
+    repeated.length() + edge.length() < alone.length() + lone_edge.length(),
+  )
+}
+
+///|
+/// A reset message stands on its own, byte for byte what a new writer produces.
+test "a reset message is a stream of its own" {
+  let body = @utf8.encode("the quick brown fox jumps over the lazy dog. ")
+  let writer = @deflate.Writer::new(level=6)
+  let _ = writer.push(body[:])
+  let _ = writer.flush()
+  writer.reset()
+  let after = writer.push(body[:])
+  let edge = writer.flush()
+  let fresh = @deflate.Writer::new(level=6)
+  assert_eq(after, fresh.push(body[:]))
+  assert_eq(edge, fresh.flush())
+  // And a reader that was reset reads it as the first message of its own stream.
+  let opener = @deflate.Writer::new(level=6)
+  let first = opener.push(body[:])
+  let first_edge = opener.flush()
+  let reader = @deflate.Reader::new()
+  assert_eq(reader.flush(first + first_edge), body)
+  reader.reset()
+  assert_eq(reader.flush(after + edge), body)
+}
+
+///|
+/// What zlib writes when it flushes a message, read by us.
+///
+/// The two messages were compressed by one `compressobj` at level 6 in raw
+/// DEFLATE with `Z_SYNC_FLUSH` after each — `scripts/zlib_message_vectors.py`
+/// prints them — so the second carries back-references into the first. That is
+/// what makes it a test of the window rather than of the decoder.
+test "zlib's flushed messages decode while the context is kept" {
+  let head = @base16.decode(
+    "ca48cdc9c957c840903a0a2519a90ab9a9c5c589e9a94076628942766a6a41b1426649b142727e5e496a45899e02000000ffff",
+  )
+  let tail = @base16.decode(
+    "4acc4b514854284e050aa428e4e74115e626562a14a526266728242526672b64e695e403b5e92900000000ffff",
+  )
+  let reader = @deflate.Reader::new()
+  assert_eq(
+    reader.flush(head[:]),
+    @utf8.encode("hello hello hello, the message that keeps its context. "),
+  )
+  assert_eq(
+    reader.flush(tail[:]),
+    @utf8.encode("and a second one that may reach back into it. "),
+  )
+}
+
+///|
+/// The same second message without the first is refused, which is what says the
+/// window above is doing the work.
+test "a message that leans on a dropped window is refused" {
+  let tail = @base16.decode(
+    "4acc4b514854284e050aa428e4e74115e626562a14a526266728242526672b64e695e403b5e92900000000ffff",
+  )
+  let reader = @deflate.Reader::new()
+  assert_true(refused(fn() raise { reader.flush(tail[:]) |> ignore }))
+}
+
+///|
+/// A message that stops in the middle of a symbol is not a message.
+test "a truncated message is refused" {
+  let whole = @base16.decode(
+    "ca48cdc9c957c840903a0a2519a90ab9a9c5c589e9a94076628942766a6a41b1426649b142727e5e496a45899e02000000ffff",
+  )
+  for cut in [1, 2, 3, 7, 10, whole.length() - 1] {
+    let reader = @deflate.Reader::new()
+    let piece = whole[0:cut].to_owned()
+    assert_true(refused(fn() raise { reader.flush(piece[:]) |> ignore }))
+  }
+}
+
+///|
+/// A message may arrive a byte at a time and still end where the flush is.
+test "a message split across pushes" {
+  let body = @utf8.encode(
+    "a body that arrives in pieces, which is the case this exists for",
+  )
+  let writer = @deflate.Writer::new(level=9)
+  let _ = writer.push(body[:])
+  let stream = writer.flush()
+  for step in [1, 2, 3, 5, 7, 13] {
+    let reader = @deflate.Reader::new()
+    let out : Array[Byte] = []
+    let mut at = 0
+    while at < stream.length() {
+      let stop = if stream.length() - at < step {
+        stream.length()
+      } else {
+        at + step
+      }
+      for b in reader.push(stream[at:stop]) {
+        out.push(b)
+      }
+      at = stop
+    }
+    // The marker is what says the message is over; a reader that pushed every
+    // byte has already decoded it, so the flush call carries nothing.
+    // The last few bytes were held back by the buffer guard, so the flush is
+    // what finishes the message and hands the rest over.
+    for b in reader.flush(b"") {
+      out.push(b)
+    }
+    assert_eq(Bytes::from_array(out), body)
+  }
+}
+
+///|
+/// A body that builds a Huffman tree deeper than the fifteen bits DEFLATE allows,
+/// and so takes the length-limited path in the writer.
+///
+/// A word list of eight, each followed by a three-digit number: most bytes arrive
+/// inside matches, so the literals that are left are a sparse, wildly uneven
+/// sample of the alphabet, and the tree that comes out of it is deep. A repair
+/// that loses a symbol there produces a code no decoder can follow, and nothing
+/// about the sizes involved says so: the stream is short, well formed to the eye,
+/// and unreadable from the first literal the lost symbol names.
+fn skewed(cap : Int32) -> Bytes {
+  let words = [
+    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
+  ]
+  let out : Array[Byte] = []
+  let mut state : UInt32 = 123456789U
+  while out.length() < cap {
+    state = state * 1103515245U + 12345U
+    let word = words[(state >> 16).reinterpret_as_int() % 8]
+    for b in word {
+      out.push((b.to_int() & 0xFF).to_byte())
+    }
+    out.push(b' ')
+    let number = ((state >> 8) % 1000U).reinterpret_as_int()
+    for ch in number.to_string() {
+      out.push((ch.to_int() & 0xFF).to_byte())
+    }
+    out.push(b' ')
+  }
+  Bytes::from_array(out[:cap])
+}
+
+///|
+/// Every level writes a stream that reads back, over a body that forces the
+/// length limit.
+test "a body that builds a tree deeper than the limit still round-trips" {
+  for cap in [1000, 70000, 300000, 620000] {
+    let body = skewed(cap)
+    for level in [1, 6, 9] {
+      let packed = @deflate.deflate(body[:], level~)
+      assert_eq(@deflate.inflate(packed[:]), body)
+    }
+  }
+}

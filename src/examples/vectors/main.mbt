@@ -99,6 +99,37 @@ fn stream_zlib(body : Bytes, step : Int32) -> Bytes {
 }
 
 ///|
+/// One body sent as three messages on one stream, each ended by a synchronising
+/// flush — the shape a connection that sends many small messages uses.
+///
+/// With `keep`, the window is carried from one message to the next, which is what
+/// `permessage-deflate` calls context takeover; without it, each message is a
+/// stream of its own. The two produce different bytes from the same body, and both
+/// have to read back somewhere else, which is what the checker asks.
+fn messages(body : Bytes, keep : Bool) -> Array[Bytes] {
+  let writer = @deflate.Writer::new(level=6)
+  let step = if body.length() / 3 > 0 { body.length() / 3 + 1 } else { 1 }
+  let out : Array[Bytes] = []
+  let mut at = 0
+  while at < body.length() || out.length() == 0 {
+    let stop = if body.length() - at < step { body.length() } else { at + step }
+    let piece : Array[Byte] = []
+    for b in writer.push(body[at:stop]) {
+      piece.push(b)
+    }
+    for b in writer.flush() {
+      piece.push(b)
+    }
+    if !keep {
+      writer.reset()
+    }
+    out.push(Bytes::from_array(piece))
+    at = stop
+  }
+  out
+}
+
+///|
 /// The six writers that take the body a piece at a time, each fed in chunks of
 /// `step` bytes, so an external checker sees the streams they produce rather than
 /// the ones a single call would.
@@ -300,6 +331,17 @@ fn main {
           "deflate \{kind} \{level} \{name_of(blocks)} \{@base16.encode(made[:])}",
         )
       }
+    }
+    for keep in [true, false] {
+      let parts = messages(body, keep)
+      let line = StringBuilder()
+      line.write_string(
+        "messages \{if keep { "keep" } else { "reset" }} \{kind}",
+      )
+      for part in parts {
+        line.write_string(" \{@base16.encode(part[:])}")
+      }
+      println(line.to_string())
     }
     println("sevenz \{kind} \{@base16.encode(stream_sevenz(kind)[:])}")
     println("gzip \{kind} \{@base16.encode(@gzip.gzip(body[:])[:])}")
