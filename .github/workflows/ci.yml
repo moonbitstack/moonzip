@@ -95,6 +95,7 @@ jobs:
         run: |
           moon update
           moon run src/examples/throughput --target native --release
+          python3 scripts/throughput_reference.py
 
       - name: docs/api.html is generated and up to date
         run: |
