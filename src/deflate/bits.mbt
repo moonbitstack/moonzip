@@ -29,9 +29,7 @@ fn BitWriter::new() -> BitWriter {
 ///|
 fn BitWriter::grow(self : BitWriter) -> Unit {
   let next = FixedArray::make(self.out.length() * 2, b'\x00')
-  for i in 0..<self.len {
-    next.unsafe_set(i, self.out.unsafe_get(i))
-  }
+  next.unsafe_blit(0, self.out, 0, self.len)
   self.out = next
 }
 
@@ -92,14 +90,17 @@ fn BitWriter::raw_range(
   from : Int32,
   to : Int32,
 ) -> Unit {
-  for i in from..<to {
-    if self.len >= self.out.length() {
-      self.grow()
-    }
-    self.out.unsafe_set(self.len, buf[i])
-    self.len = self.len + 1
+  let n = to - from
+  while self.len + n > self.out.length() {
+    self.grow()
   }
-  self.count += (to - from) * 8
+  let out = self.out
+  let at = self.len
+  for i in 0..<n {
+    out.unsafe_set(at + i, buf.unsafe_get(from + i))
+  }
+  self.len = at + n
+  self.count += n * 8
 }
 
 ///|
@@ -137,16 +138,21 @@ fn BitWriter::finish(self : BitWriter) -> Bytes {
 /// end of the buffer returns `None` rather than raising, because the byte it
 /// wants may be in the next chunk — the caller decides whether the stream is
 /// over, and only then is running out an error.
+///
+/// The accumulator is sixty-four bits wide and the buffer is `Bytes` rather than
+/// an array so that a refill is one unaligned word load: the decoder's inner loop
+/// pulls eight bytes at a time and keeps the whole of a code plus its extra bits
+/// there, which is what keeps the per-symbol work down to one table lookup.
 priv struct BitReader {
-  mut buf : Array[Byte]
+  mut buf : Bytes
   mut pos : Int32
-  mut acc : Int32
+  mut acc : UInt64
   mut held : Int32
 }
 
 ///|
 fn BitReader::new() -> BitReader {
-  { buf: [], pos: 0, acc: 0, held: 0, }
+  { buf: b"", pos: 0, acc: 0UL, held: 0, }
 }
 
 ///|
@@ -155,34 +161,31 @@ fn BitReader::new() -> BitReader {
 fn BitReader::push(self : BitReader, data : BytesView) -> Unit {
   // Whole bytes the accumulator holds are un-pulled first: `pos` is the next
   // byte not yet looked at, and everything below it is about to be dropped. A
-  // look-ahead leaves up to three such bytes behind, and dropping them loses
+  // look-ahead leaves up to seven such bytes behind, and dropping them loses
   // input that has not been decoded yet.
   let whole = self.held / 8
   if whole > 0 {
     self.pos -= whole
     self.held -= whole * 8
-    self.acc = self.acc & ((1 << self.held) - 1)
+    self.acc = self.acc & ((1UL << self.held) - 1UL)
   }
-  if self.pos > 0 {
-    // What has been consumed is dropped before the new bytes arrive, so that the
-    // buffer holds one region rather than a high-water mark of everything ever
-    // pushed. A blit, not a byte loop: this runs once per push over the whole
-    // remainder.
-    let held = self.buf.length() - self.pos
-    let kept = Array::make(held, b'\x00')
-    if held > 0 {
-      kept.unsafe_blit(0, self.buf, self.pos, held)
-    }
-    self.buf = kept
-    self.pos = 0
-  }
-  let at = self.buf.length()
   let extra = data.length()
-  if extra > 0 {
-    self.buf.resize(at + extra, b'\x00')
-    for i in 0..<extra {
-      self.buf[at + i] = data[i]
+  let left = self.buf.length() - self.pos
+  if extra > 0 || self.pos > 0 {
+    // One allocation and two blits. Growing an array a byte at a time costs the
+    // capacity check and the call that a blit does not, and this runs over every
+    // byte that arrives.
+    let kept = FixedArray::make(left + extra, b'\x00')
+    if left > 0 {
+      for i in 0..<left {
+        kept.unsafe_set(i, self.buf.unsafe_get(self.pos + i))
+      }
     }
+    for i in 0..<extra {
+      kept.unsafe_set(left + i, data.unsafe_get(i))
+    }
+    self.buf = Bytes::from_array(kept[:])
+    self.pos = 0
   }
 }
 
@@ -193,11 +196,12 @@ fn BitReader::bits(self : BitReader, count : Int32) -> Int32? {
     if self.pos >= self.buf.length() {
       return None
     }
-    self.acc = self.acc | (self.buf[self.pos].to_int() << self.held)
+    self.acc = self.acc |
+      (self.buf.unsafe_get(self.pos).to_uint64() << self.held)
     self.pos += 1
     self.held += 8
   }
-  let value = self.acc & ((1 << count) - 1)
+  let value = (self.acc & ((1UL << count) - 1UL)).to_int()
   self.acc = self.acc >> count
   self.held -= count
   Some(value)
@@ -216,11 +220,12 @@ fn BitReader::take(self : BitReader, count : Int32) -> Int32 {
     if self.pos >= self.buf.length() {
       return -1
     }
-    self.acc = self.acc | (self.buf[self.pos].to_int() << self.held)
+    self.acc = self.acc |
+      (self.buf.unsafe_get(self.pos).to_uint64() << self.held)
     self.pos += 1
     self.held += 8
   }
-  let value = self.acc & ((1 << count) - 1)
+  let value = (self.acc & ((1UL << count) - 1UL)).to_int()
   self.acc = self.acc >> count
   self.held -= count
   value
@@ -253,7 +258,7 @@ fn BitReader::align(self : BitReader) -> Unit {
   if whole > 0 {
     self.pos -= whole
   }
-  self.acc = 0
+  self.acc = 0UL
   self.held = 0
 }
 
@@ -263,19 +268,29 @@ fn BitReader::align(self : BitReader) -> Unit {
 /// chunk boundary in the middle of one is not an error — the rest arrives with
 /// the next push. Only valid at a byte boundary, which is where a stored block
 /// is.
+///
+/// Eight bytes at a time: the copy is the whole cost of a stored block, and a
+/// byte loop through a field of `self` reloads the buffer pointer on every
+/// iteration because a store through `dst` may in principle have written it.
 fn BitReader::take_bytes(
   self : BitReader,
   dst : FixedArray[Byte],
   at : Int32,
   count : Int32,
 ) -> Int32 {
-  let left = self.buf.length() - self.pos
+  let buf = self.buf
+  let pos = self.pos
+  let left = buf.length() - pos
   let taken = if left < count { left } else { count }
-  if taken > 0 {
-    for i in 0..<taken {
-      dst.unsafe_set(at + i, self.buf.unsafe_get(self.pos + i))
-    }
-    self.pos += taken
+  let mut i = 0
+  while i + 8 <= taken {
+    dst.unsafe_write_uint64_le(at + i, buf.unsafe_read_uint64_le(pos + i))
+    i += 8
   }
+  while i < taken {
+    dst.unsafe_set(at + i, buf.unsafe_get(pos + i))
+    i += 1
+  }
+  self.pos = pos + taken
   taken
 }

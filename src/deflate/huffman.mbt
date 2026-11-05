@@ -2,16 +2,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 ///|
-/// How many bits the look-ahead covers.
+/// How many bits the first-level look-ahead covers.
 ///
-/// Nine rather than eight because DEFLATE's fixed literal code tops out at nine,
-/// so a fixed block decodes every symbol in one lookup, and a dynamic code built
-/// from real text rarely has many symbols past nine either. The table is built
-/// once per code, so the cost is `FAST_SIZE` writes per block, not per symbol.
-const FAST_BITS : Int32 = 9
+/// Eleven because that is what fits in a table small enough to stay resident: two
+/// kilobytes of entries, so a decode is one load that hits the first level of the
+/// cache. Codes longer than that are found by a second level of sixteen entries
+/// hung off the first, which is one more load on the symbols that need it — and no
+/// bit-at-a-time walk anywhere, which is what a single level would have left for
+/// the deepest codes on a skewed alphabet.
+const FAST_BITS : Int32 = 11
 
 ///|
-const FAST_SIZE : Int32 = 512
+const FAST_SIZE : Int32 = 2048
+
+///|
+/// The same bound as a mask, so that indexing the table is an and.
+const FAST_MASK : Int32 = 2047
+
+///|
+/// How many bits the second level adds: fifteen is the deepest code the format
+/// defines, so the remainder of a long code is at most four bits.
+const SUB_BITS : Int32 = 15 - FAST_BITS
+
+///|
+const SUB_SIZE : Int32 = 1 << SUB_BITS
 
 ///|
 /// A canonical Huffman code, held as the count of codes at each width and the
@@ -20,10 +34,14 @@ const FAST_SIZE : Int32 = 512
 priv struct Huffman {
   counts : FixedArray[Int32]
   symbols : FixedArray[Int32]
-  /// Every `FAST_BITS`-bit look-ahead, and the symbol it names when a code fits
-  /// inside that many bits. An entry is `symbol << 4 | width`, or -1 when the code
-  /// is longer and the slow path has to walk it.
+  /// The `FAST_BITS`-bit look-ahead. An entry is `symbol << 4 | width` when a code
+  /// fits inside that many bits; `-(offset + 2)` when the prefix belongs to longer
+  /// codes, which are found in `sub`; and -1 when no code of this code's alphabet
+  /// starts with those bits, which is how a corrupt stream is caught.
   fast : FixedArray[Int32]
+  /// The tails of the codes longer than the look-ahead, sixteen entries per
+  /// prefix: `symbol << 4 | width`, or -1 for a tail no code names.
+  sub : FixedArray[Int32]
 }
 
 ///|
@@ -46,47 +64,80 @@ fn Huffman::of(lengths : FixedArray[Int32], n : Int32) -> Huffman {
       offsets[lengths[i]] += 1
     }
   }
-  { counts, symbols, fast: fast_table(counts, symbols), }
+  let (fast, sub) = fast_table(counts, symbols)
+  { counts, symbols, fast, sub, }
 }
 
 ///|
-/// The eight-bit look-ahead table.
+/// The two-level look-ahead table.
 ///
 /// A code goes out most significant bit first while everything else in the stream
 /// goes out least significant first, so the value the reader sees for a code is
-/// its bits reversed. Filling the table means writing that reversed value into
-/// every slot whose low bits agree with it, and a slot no code of eight bits or
-/// fewer covers keeps -1 — which is also the answer for a truncated stream, since
-/// the caller falls back to the bit-at-a-time walk and gets `None` there.
+/// its bits reversed. Filling the first level means writing that reversed value
+/// into every slot whose low bits agree with it. A slot no code reaches keeps -1 —
+/// which is also the answer for a truncated stream, since the caller falls back to
+/// the bit-at-a-time walk and gets `None` there.
 fn fast_table(
   counts : FixedArray[Int32],
   symbols : FixedArray[Int32],
-) -> FixedArray[Int32] {
+) -> (FixedArray[Int32], FixedArray[Int32]) {
   let table = FixedArray::make(FAST_SIZE, -1)
+  let sub : Array[Int32] = []
   let mut code = 0
   let mut index = 0
   for width in 1..<16 {
     let count = counts[width]
-    if width <= FAST_BITS && count > 0 {
-      let step = 1 << width
-      for k in 0..<count {
-        let canonical = code + k
-        let mut flipped = 0
-        for i in 0..<width {
-          flipped = (flipped << 1) | ((canonical >> i) & 1)
+    if count > 0 {
+      if width <= FAST_BITS {
+        let step = 1 << width
+        for k in 0..<count {
+          let flipped = reverse(code + k, width)
+          let entry = (symbols[index + k] << 4) | width
+          let mut slot = flipped
+          while slot < FAST_SIZE {
+            table[slot] = entry
+            slot += step
+          }
         }
-        let entry = (symbols[index + k] << 4) | width
-        let mut slot = flipped
-        while slot < FAST_SIZE {
-          table[slot] = entry
-          slot += step
+      } else {
+        for k in 0..<count {
+          let flipped = reverse(code + k, width)
+          let prefix = flipped & FAST_MASK
+          let mut offset = table[prefix]
+          if offset >= 0 || offset == -1 {
+            // The first long code under this prefix takes the next free block of
+            // tails; the ones after it share the block.
+            offset = -(sub.length() + 2)
+            table[prefix] = offset
+            for _ in 0..<SUB_SIZE {
+              sub.push(-1)
+            }
+          }
+          let base = -offset - 2
+          let entry = (symbols[index + k] << 4) | width
+          let step = 1 << (width - FAST_BITS)
+          let mut slot = (flipped >> FAST_BITS) & (SUB_SIZE - 1)
+          while slot < SUB_SIZE {
+            sub[base + slot] = entry
+            slot += step
+          }
         }
       }
     }
     index += count
     code = (code + count) << 1
   }
-  table
+  (table, FixedArray::from_array(sub))
+}
+
+///|
+/// The bits of a code in the order the stream carries them.
+fn reverse(code : Int32, width : Int32) -> Int32 {
+  let mut flipped = 0
+  for i in 0..<width {
+    flipped = (flipped << 1) | ((code >> i) & 1)
+  }
+  flipped
 }
 
 ///|
@@ -111,17 +162,28 @@ fn Huffman::sym(self : Huffman, br : BitReader) -> Int32 {
     if br.pos >= br.buf.length() {
       break
     }
-    br.acc = br.acc | (br.buf[br.pos].to_int() << br.held)
+    br.acc = br.acc | (br.buf.unsafe_get(br.pos).to_uint64() << br.held)
     br.pos += 1
     br.held += 8
   }
   if br.held >= FAST_BITS {
-    let entry = self.fast[br.acc & (FAST_SIZE - 1)]
+    let entry = self.fast.unsafe_get(br.acc.to_int() & FAST_MASK)
     if entry >= 0 {
       let width = entry & 0xF
       br.acc = br.acc >> width
       br.held -= width
       return entry >> 4
+    }
+    if entry < -1 && br.held >= 15 {
+      let tail = self.sub.unsafe_get(
+        -entry - 2 + ((br.acc.to_int() >> FAST_BITS) & (SUB_SIZE - 1)),
+      )
+      if tail >= 0 {
+        let width = tail & 0xF
+        br.acc = br.acc >> width
+        br.held -= width
+        return tail >> 4
+      }
     }
   }
   let mut code = 0

@@ -224,6 +224,29 @@ let distance_index_of : FixedArray[Int32] = {
 }
 
 ///|
+/// The base and the extra-bit count of each length symbol, in one word: the
+/// reader asks both for every match it decodes, and two tables is two loads
+/// through two pointers where one would do.
+let length_info : FixedArray[Int32] = {
+  let out = FixedArray::make(29, 0)
+  for i in 0..<29 {
+    out[i] = (length_base[i] << 5) | length_extra[i]
+  }
+  out
+}
+
+///|
+/// The same for each distance symbol: base in the high bits, extra-bit count in
+/// the low five, which holds every base the format defines.
+let distance_info : FixedArray[Int32] = {
+  let out = FixedArray::make(30, 0)
+  for i in 0..<30 {
+    out[i] = (dist_base[i] << 5) | dist_extra[i]
+  }
+  out
+}
+
+///|
 /// The length symbol a match length takes.
 fn length_index(len : Int32) -> Int32 {
   if len < 3 {
@@ -1259,18 +1282,23 @@ fn Reader::decode(self : Reader) -> Unit raise @moonzip.Refused {
 /// stage machine means testing the stage and the buffer guard again for every byte
 /// of output. Here the guard is paid once per symbol rather than twice, and the
 /// stage is tested only when something might have changed it.
+///
+/// Everything the loop reads between symbols is a local: the bit state, the two
+/// code tables, the output cursor. A field is a load through a pointer this loop's
+/// own stores may in principle have changed, so the compiler has to reload it after
+/// every byte written — and a per-symbol chain of dependent loads is most of what a
+/// decoder's inner loop can lose to.
 fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
-  // The bit state, the tables and the output, held in locals for the whole
-  // block. Every one of them is a field of a struct behind a reference, and a
-  // decoder that reloads them per symbol is a decoder that spends most of its
-  // time on loads: this is the one loop in the library where that matters, so
-  // the state is pulled out here and written back when the loop ends.
   let mut out = self.out
   let mut olen = self.produced
   let mut cap = out.length()
   let at_end = self.at_end
   let lit = self.lit
   let dist = self.dist
+  let lit_fast = lit.fast
+  let lit_sub = lit.sub
+  let dist_fast = dist.fast
+  let dist_sub = dist.sub
   let br = self.br
   let buf = br.buf
   let n = buf.length()
@@ -1282,35 +1310,45 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
   let mut have = kept + olen
   let mut running = true
   while running && (at_end || n - pos >= 8) {
-    // Sixteen bits at a time, so that the look-ahead and the extra bits of a
-    // match are paid together rather than twice.
-    if held < 16 && pos < n {
-      acc = acc | (buf.unsafe_get(pos).to_int() << held)
-      pos += 1
-      held += 8
-      if held < 16 && pos < n {
-        acc = acc | (buf.unsafe_get(pos).to_int() << held)
-        pos += 1
-        held += 8
-      }
+    // Eight bytes at a time. One unaligned load leaves the accumulator holding a
+    // code of any width plus the extra bits that follow it, so a symbol costs a
+    // shift and a lookup rather than a refill per field.
+    if held < 56 && n - pos >= 8 {
+      let word = buf.unsafe_read_uint64_le(pos)
+      let take = (63 - held) >> 3
+      let after = held + take * 8
+      acc = (acc | (word << held)) & ((1UL << after) - 1UL)
+      pos += take
+      held = after
     }
-    // Fewer than nine bits is not enough for the look-ahead, and a table
-    // lookup on a padded value names a symbol that was never in the stream —
-    // which is how a truncated stream decodes into something that looks right.
-    // The slow path is the one that knows how to say "not enough".
     let entry = if held >= FAST_BITS {
-      lit.fast[acc & (FAST_SIZE - 1)]
+      lit_fast.unsafe_get(acc.to_int() & FAST_MASK)
     } else {
       -1
     }
     let mut sym = entry >> 4
-    if entry >= 0 {
+    let mut known = entry >= 0
+    if known {
       let width = entry & 0xF
       acc = acc >> width
       held -= width
-    } else {
-      // A code longer than the look-ahead. Rare enough that the call and the
-      // state hand-off are cheaper than keeping a second-level table.
+    } else if entry < -1 && held >= 15 {
+      // A code the look-ahead only begins: its tail decides which one it is.
+      let tail = lit_sub.unsafe_get(
+        -entry - 2 + ((acc.to_int() >> FAST_BITS) & (SUB_SIZE - 1)),
+      )
+      if tail >= 0 {
+        let width = tail & 0xF
+        acc = acc >> width
+        held -= width
+        sym = tail >> 4
+        known = true
+      }
+    }
+    if !known {
+      // A code longer than the look-ahead, or an accumulator holding fewer bits
+      // than one. Rare enough that the call and the state hand-off are cheaper
+      // than keeping a second table for it.
       br.pos = pos
       br.acc = acc
       br.held = held
@@ -1335,8 +1373,8 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
         out.unsafe_set(olen, sym.to_byte())
         olen = olen + 1
       } else {
-        // The slow path counts the limit and so goes through the reader, whose
-        // output cursor is the field: hand the local one over first.
+        // The slow path counts against the limit and so goes through the reader,
+        // whose output cursor is the field: hand the local one over first.
         br.pos = pos
         br.acc = acc
         br.held = held
@@ -1357,36 +1395,54 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
         br.pos = pos
         raise @moonzip.Code(at=pos)
       }
-      let need = length_extra[index]
-      if need > 0 && held < need {
-        br.pos = pos
-        br.acc = acc
-        br.held = held
-        let extra = br.take(need)
-        if extra < 0 {
-          raise @moonzip.Truncated(at=br.at())
+      let info = length_info.unsafe_get(index)
+      let need = info & 31
+      let len = if need > 0 {
+        if held < need {
+          br.pos = pos
+          br.acc = acc
+          br.held = held
+          let extra = br.take(need)
+          if extra < 0 {
+            raise @moonzip.Truncated(at=br.at())
+          }
+          pos = br.pos
+          acc = br.acc
+          held = br.held
+          (info >> 5) + extra
+        } else {
+          let value = (info >> 5) + (acc.to_int() & ((1 << need) - 1))
+          acc = acc >> need
+          held -= need
+          value
         }
-        pos = br.pos
-        acc = br.acc
-        held = br.held
-        sym = length_base[index] + extra
       } else {
-        sym = length_base[index] + (acc & ((1 << need) - 1))
-        acc = acc >> need
-        held -= need
+        info >> 5
       }
-      let len = sym
       let dentry = if held >= FAST_BITS {
-        dist.fast[acc & (FAST_SIZE - 1)]
+        dist_fast.unsafe_get(acc.to_int() & FAST_MASK)
       } else {
         -1
       }
       let mut dcode = dentry >> 4
-      if dentry >= 0 {
+      let mut dknown = dentry >= 0
+      if dknown {
         let width = dentry & 0xF
         acc = acc >> width
         held -= width
-      } else {
+      } else if dentry < -1 && held >= 15 {
+        let tail = dist_sub.unsafe_get(
+          -dentry - 2 + ((acc.to_int() >> FAST_BITS) & (SUB_SIZE - 1)),
+        )
+        if tail >= 0 {
+          let width = tail & 0xF
+          acc = acc >> width
+          held -= width
+          dcode = tail >> 4
+          dknown = true
+        }
+      }
+      if !dknown {
         br.pos = pos
         br.acc = acc
         br.held = held
@@ -1402,8 +1458,9 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
         br.pos = pos
         raise @moonzip.Code(at=pos)
       }
-      let dneed = dist_extra[dcode]
-      let mut back = dist_base[dcode]
+      let dinfo = distance_info.unsafe_get(dcode)
+      let dneed = dinfo & 31
+      let mut back = dinfo >> 5
       if dneed > 0 {
         if held < dneed {
           br.pos = pos
@@ -1418,7 +1475,7 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
           held = br.held
           back += extra
         } else {
-          back += acc & ((1 << dneed) - 1)
+          back += acc.to_int() & ((1 << dneed) - 1)
           acc = acc >> dneed
           held -= dneed
         }
@@ -1430,13 +1487,6 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
         br.pos = pos
         raise @moonzip.Distance(at=pos)
       }
-      // Copied a byte at a time on purpose: a run-length match overlaps
-      // itself, and the bytes it copies are the ones this loop is writing.
-      // What the fast path below removes is the two per-byte branches — "is
-      // this byte in the history or the output" and "has the limit been
-      // reached" — which the whole match answers once. A match that reaches
-      // into the kept history, or one that would run past the limit, still
-      // takes the slow road.
       let start = have - back
       if (limit < 0 || have + len <= limit) && start >= kept {
         let base = start - kept
@@ -1446,9 +1496,11 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
           out = self.out
           cap = out.length()
         }
+        // A match that does not overlap itself is a block copy, and taking it in
+        // one go is most of what a long match costs here. A shorter one, or one
+        // that repeats a pattern shorter than eight bytes, is copied a byte at a
+        // time because the bytes it copies are the ones it is writing.
         if back >= len && len >= 16 {
-          // A match that does not overlap itself is a block copy, and taking it
-          // in one go is most of what a long match costs here.
           out.unsafe_blit(olen, out, base, len)
         } else {
           for k in 0..<len {
