@@ -88,6 +88,14 @@ jobs:
             moon run "$dir" --target native > /dev/null
           done
 
+      # The figures in the README's throughput section are this job's numbers as
+      # much as anyone's: a rate is worth quoting only next to the machine that
+      # produced it, and this is the machine the project measures its releases on.
+      - name: the throughput figures
+        run: |
+          moon update
+          moon run src/examples/throughput --target native --release
+
       - name: docs/api.html is generated and up to date
         run: |
           moon update
