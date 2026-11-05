@@ -127,6 +127,46 @@ a time, refuses a file that is not one on the first six bytes, and decodes folde
 by folder when the directory shows up, keeping one folder's output rather than the
 whole archive's.
 
+For an archive on disk, `un7z_from` takes a source instead of a block of bytes:
+
+```moonbit
+let members = @sevenz.un7z_from(archive_file)   // anything implementing RandomAccess
+```
+
+A `RandomAccess` is two methods — `read(offset, len)` and `size()` — so a file, a
+memory mapping and a range of some larger store all fit, and a caller with neither
+can wrap its own storage in a dozen lines. The signature header and the directory
+are read first, because the directory is what says where the folders are; after
+that each folder is read, decoded and cut into its members before the next one is
+touched. The archive itself is never held: what a caller pays beyond the members
+is one folder, packed and unpacked. `un7z` is this reader over an archive already
+in memory, so there is one implementation of the folder logic and not two.
+
+A message boundary is the other unit a connection has. `deflate`'s writer can end a
+message without ending the stream — `flush` writes `Z_SYNC_FLUSH`, the empty stored
+block every streaming compressor recognises — and the reader stops exactly there:
+
+```moonbit
+let writer = @deflate.Writer::new(level=6)
+for message in messages {
+  for b in writer.push(message[:]) { out.push(b) }
+  for b in writer.flush() { out.push(b) }        // ends with 00 00 FF FF
+}
+for b in writer.finish() { out.push(b) }         // the last message ends the stream
+
+let reader = @deflate.Reader::new()
+for piece in pieces {
+  for b in reader.flush(piece) { out.push(b) }   // one message, window kept
+}
+```
+
+What the reader keeps between messages is the same 32 KiB window, so the next
+message may match against the last one — the setting a WebSocket connection calls
+context takeover. `reset` on either side throws it away, and the next message
+stands on its own. Both were checked against zlib: its flushed messages decode
+here, ours decode there, and a message that leans on a window that was dropped is
+refused rather than guessed at.
+
 A chunk boundary may fall inside a header field, inside a Huffman code, inside a
 stored block, or between a member's data and its data descriptor. The tests feed
 the same body in pieces of one, two, three, five, seven, thirteen, sixty-four,
@@ -598,51 +638,43 @@ finder, which loses the cross-block matches a repetitive body lives on.
 ## Throughput
 
 Sizes are one axis; the other is time. These are release-build numbers from
-`src/examples/throughput` on one machine, the median of ten runs after a warm-up,
-over a 1.5 MB body of words and numbers that compresses 3.4 to 1. A rate on a
-shared machine is a range rather than a constant — this one moves by a factor of
-two between runs — so read them as orders of magnitude.
+`src/examples/throughput` — the median of ten runs after a warm-up, over a 1.5 MB
+body of words and numbers that compresses 3.4 to 1. A rate on a shared machine is a
+range rather than a constant, and this one moves by a third between runs, so read
+them as orders of magnitude and compare the two columns rather than the digits.
 
 | Codec | Write MB/s | Read MB/s |
 |:--|--:|--:|
-| `deflate` | 16 | 150 |
-| `gzip` | 16 | 107 |
-| `zlib` | 14 | 130 |
-| `zstd` | 17 | 35 |
-| `brotli` (quality 9) | 1.1 | 52 |
+| `deflate` | 8.5 | 80 |
+| `gzip` | 9.0 | 63 |
+| `zlib` | 8.6 | 65 |
+| `zstd` | 8.7 | 24 |
+| `brotli` (quality 9) | 0.3 | 27 |
 
-The same body through C zlib on the same machine — `zlib.compress(_, 6)` from
-Python, median of ten, which `scripts/throughput_reference.py` reproduces — writes
-at about 16 MB/s and reads at 349. The deflate writer is therefore at zlib's own
-write rate, and reads at something under half of its decode rate: 143 to 153 MB/s
-against 349, measured in the same session.
+The same body through C zlib on the same machine, in the same session —
+`zlib.compress(_, 6)` and `zlib.decompress` from Python, which
+`scripts/throughput_reference.py` reproduces — writes at 10 MB/s and reads at 206.
+The deflate writer is therefore within a tenth of zlib's own write rate, and the
+reader is a little under half of its decode rate.
 
-Everything there is a constant factor, and all of it is in the two loops that
-touch one byte at a time. **Writing**: a match is compared four bytes at a time
-through an unaligned word read rather than byte by byte, which is where a match
-finder spends its time; the Huffman codes are reversed once when the table is
-built instead of per symbol; the length and distance symbols are table lookups;
-the bit writer holds a buffer it doubles instead of pushing bytes through a
-growable array; and the block that wins the auto choice is spliced into the stream
-rather than written a second time. **Reading**: the block loop holds the bit
-state, the tables and the output cursor in locals instead of reloading them from
-three structs per symbol, and writes into a buffer of its own rather than through
-a growable array's push. And the one-shot `inflate` no longer copies its result
-into a fresh array to append nothing to it.
+Half is where the decoder got to. It was a third before this batch, and the
+difference is per symbol rather than per byte: the bit accumulator is sixty-four
+bits and is refilled eight bytes at a time, the code tables are two levels deep so
+that no symbol is ever found by walking its bits, and every table, cursor and bit
+count is a local so that writing an output byte does not force the compiler to
+reload them.
 
-Two earlier changes are still what make the reader worth having. It keeps the last
-32 KiB of what it decoded instead of all of it — a back-reference reaches one
-window back, so the rest was a megabyte of copies nothing could read. And the
-Huffman decoder looks nine bits ahead, naming most codes with one lookup. The
-look-ahead is also what broke the compressed-to-stored transition the first time:
-pulling bytes into the accumulator is fine until `align` throws that accumulator
-away and takes whole bytes of the stored block's payload with it. The mistake was
-to conclude that the reader cannot look ahead. It is that `align` has to hand
-those bytes back by rewinding the read position — and so does `rest`, because a
-trailer is exactly what a look-ahead leaves in the accumulator — and that a reader
-which stops with whole bytes still in the accumulator has to un-pull them before it
-drops what it has consumed. That last one is a bug this reader had for as long as
-it looked ahead at all, and only a body fed one byte at a time found it.
+| | Before | After |
+|:--|--:|--:|
+| `deflate` read, this body | 57.6 | 80 |
+| symbols found by walking bits | one in ten | none |
+| stored-block copy | one byte at a time | eight |
+
+The rest of the gap is the parse, not the reader: `deflate` prefers many short
+matches to one long one — 206,000 of the 208,000 tokens in this body are matches
+averaging seven bytes — so a decoder is asked to do more per byte here than a
+parse that folds those seven bytes into one token would ask. That is a property of
+the writer, and its bytes are pinned by tests, so this batch left it alone.
 
 `brotli`'s write rate is the price of its search: quality 9 walks up to 256 chain
 candidates at each position. `quality=1` is several times faster for a few per cent

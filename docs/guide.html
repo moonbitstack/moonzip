@@ -289,6 +289,14 @@ zlib      -> 93 bytes, back to 9000</pre>
       and no compressed members; <code>targz</code> is a tarball through gzip, which is
       all a <code>.tar.gz</code> ever was.
     </p>
+    <p class="sub" style="margin-top:-8px">
+      <code>7z</code> puts its directory after the folders it describes, so it cannot
+      be read from the front like <code>zip</code>. It can be read without holding it:
+      <code>un7z_from</code> takes anything implementing <code>RandomAccess</code> —
+      two methods, <code>read(offset, len)</code> and <code>size()</code> — reads the
+      directory, then takes one folder at a time. <code>un7z</code> is that same
+      reader over a block of bytes already in memory.
+    </p>
 
     <div class="pair">
       <div class="pair__label">build &amp; read</div>
@@ -441,6 +449,54 @@ gunzip    -> 184000 bytes, matches: true</pre>
         <p style="margin:14px 0 0;color:var(--ink-faint);font-size:13px">
           The home page runs the same algorithm in the browser; here it is in MoonBit,
           on a body fed back in pieces that fall inside headers and codes.
+        </p>
+      </div>
+    </div>
+
+    <p class="sub">
+      A stream can also be cut into messages without ending it. <code>flush</code>
+      writes a synchronising flush — the empty stored block, four bytes of
+      <code>00 00 FF FF</code> — and the reader stops exactly there, keeping its
+      window so the next message may match against the last one. <code>reset</code>
+      on either side drops the window, which is the other setting a WebSocket
+      connection negotiates for context takeover.
+    </p>
+
+    <div class="pair">
+      <div class="pair__label">two messages, one window</div>
+      <div>
+        <div class="code-head">moonbit<span></span></div>
+<pre class="code"><code class="hl">fn main raise {
+  let messages = [
+    "the quick brown fox jumps over the lazy dog. ",
+    "the quick brown fox jumps over the lazy dog. ",
+  ]
+  let writer = @deflate.Writer::new(level=6)
+  let parts : Array[Bytes] = []
+  for text in messages {
+    let body = @utf8.encode(text)
+    let piece : Array[Byte] = []
+    for b in writer.push(body[:]) { piece.push(b) }
+    for b in writer.flush() { piece.push(b) }
+    parts.push(Bytes::from_array(piece))
+  }
+  println("message 1 -> \{parts[0].length()} bytes")
+  println("message 2 -> \{parts[1].length()} bytes, same body")
+
+  let reader = @deflate.Reader::new()
+  let mut total = 0
+  for part in parts {
+    for b in reader.flush(part[:]) { total = total + 1 }
+  }
+  println("read back -> \{total} bytes")
+}</code></pre>
+        <div class="code-head">output<span></span></div>
+<pre class="out">message 1 -> 49 bytes
+message 2 -> 8 bytes, same body
+read back -> 90 bytes</pre>
+        <p style="margin:14px 0 0;color:var(--ink-faint);font-size:13px">
+          The second message is eight bytes because the whole of it is one
+          back-reference into the first. Two writers would have sent 49 twice.
         </p>
       </div>
     </div>
