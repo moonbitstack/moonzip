@@ -411,10 +411,10 @@ pub fn Writer::finish(self : Writer) -> Bytes {
 /// byte boundary, and an empty stored block closes the message — the four bytes
 /// `00 00 FF FF` a synchronising flush is. Nothing is finished: the writer still
 /// holds its window, so the next message may reach back into this one, and
-/// [`finish`](#finish) may still be called at the end of the last one.
+/// `finish` may still be called at the end of the last one.
 ///
 /// A sender that wants the other convention — no context carried between
-/// messages — calls [`reset`](#reset) after this.
+/// messages — calls `reset` after this.
 pub fn Writer::flush(self : Writer) -> Bytes {
   guard !self.closed else { abort("deflate: the writer is finished") }
   if self.buf.length() > self.from {
@@ -1070,7 +1070,7 @@ pub fn Reader::done(self : Reader) -> Bool {
 ///|
 /// Decode one message, which ends at a `Z_SYNC_FLUSH`.
 ///
-/// This is the receiving half of [`Writer::flush`](#flush): the bytes up to and
+/// This is the receiving half of `Writer::flush`: the bytes up to and
 /// including the empty stored block are consumed, what they decoded is handed
 /// back, and the reader keeps its window — so the next message may refer back
 /// into this one, which is what a persistent context buys on a connection that
@@ -1078,7 +1078,7 @@ pub fn Reader::done(self : Reader) -> Bool {
 /// the offset says where.
 ///
 /// A receiver that wants the other convention, no context carried over, calls
-/// [`reset`](#reset) between messages.
+/// `reset` between messages.
 pub fn Reader::flush(
   self : Reader,
   data : BytesView,
@@ -1102,7 +1102,7 @@ pub fn Reader::flush(
 ///|
 /// Forget the window, so that the next message is read as a stream of its own.
 ///
-/// Only meaningful at a message boundary, which is where [`flush`](#flush) leaves
+/// Only meaningful at a message boundary, which is where `flush` leaves
 /// the reader: the bit state is empty there, because a synchronising flush ends on
 /// a byte boundary.
 pub fn Reader::reset(self : Reader) -> Unit {
@@ -1511,27 +1511,25 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
       }
       let info = length_info.unsafe_get(index)
       let need = info & 31
-      let len = if need > 0 {
-        if held < need {
-          br.pos = pos
-          br.acc = acc
-          br.held = held
-          let extra = br.take(need)
-          if extra < 0 {
-            raise @moonzip.Truncated(at=br.at())
-          }
-          pos = br.pos
-          acc = br.acc
-          held = br.held
-          (info >> 5) + extra
-        } else {
-          let value = (info >> 5) + (acc.to_int() & ((1 << need) - 1))
-          acc = acc >> need
-          held -= need
-          value
-        }
+      // No branch on `need`: a field with no extra bits masks off nothing and
+      // shifts by zero, which is cheaper than a prediction this loop cannot make.
+      let len = if held >= need {
+        let value = (info >> 5) + (acc.to_int() & ((1 << need) - 1))
+        acc = acc >> need
+        held -= need
+        value
       } else {
-        info >> 5
+        br.pos = pos
+        br.acc = acc
+        br.held = held
+        let extra = br.take(need)
+        if extra < 0 {
+          raise @moonzip.Truncated(at=br.at())
+        }
+        pos = br.pos
+        acc = br.acc
+        held = br.held
+        (info >> 5) + extra
       }
       let dentry = if held >= FAST_BITS {
         dist_fast.unsafe_get(acc.to_int() & FAST_MASK)
@@ -1575,24 +1573,22 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
       let dinfo = distance_info.unsafe_get(dcode)
       let dneed = dinfo & 31
       let mut back = dinfo >> 5
-      if dneed > 0 {
-        if held < dneed {
-          br.pos = pos
-          br.acc = acc
-          br.held = held
-          let extra = br.take(dneed)
-          if extra < 0 {
-            raise @moonzip.Truncated(at=br.at())
-          }
-          pos = br.pos
-          acc = br.acc
-          held = br.held
-          back += extra
-        } else {
-          back += acc.to_int() & ((1 << dneed) - 1)
-          acc = acc >> dneed
-          held -= dneed
+      if held >= dneed {
+        back += acc.to_int() & ((1 << dneed) - 1)
+        acc = acc >> dneed
+        held -= dneed
+      } else {
+        br.pos = pos
+        br.acc = acc
+        br.held = held
+        let extra = br.take(dneed)
+        if extra < 0 {
+          raise @moonzip.Truncated(at=br.at())
         }
+        pos = br.pos
+        acc = br.acc
+        held = br.held
+        back += extra
       }
       // One measurement of how much has been produced, used for all three
       // questions the copy asks: is the distance in range, where does the copy

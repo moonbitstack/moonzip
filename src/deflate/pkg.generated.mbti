@@ -28,14 +28,18 @@ pub fn Blocks::to_repr(Self) -> @debug.Repr
 type Reader
 pub fn Reader::done(Self) -> Bool
 pub fn Reader::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Reader::flush(Self, BytesView) -> Bytes raise @moonzip.Refused
 pub fn Reader::new(limit? : Int32) -> Self
 pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
+pub fn Reader::reset(Self) -> Unit
 pub fn Reader::rest(Self) -> Bytes
 
 type Writer
 pub fn Writer::finish(Self) -> Bytes
+pub fn Writer::flush(Self) -> Bytes
 pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, blocks? : Blocks) -> Self
 pub fn Writer::push(Self, BytesView) -> Bytes
+pub fn Writer::reset(Self) -> Unit
 
 // Type aliases
 
