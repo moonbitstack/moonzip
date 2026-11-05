@@ -61,7 +61,53 @@ pub fn Entry::directory(name : String, mtime~ : Int64 = 0L) -> Entry {
 let attribute_directory : UInt32 = 0x10U
 
 ///|
-/// Read a 7z archive.
+/// Where an archive lives when it is not one block of memory: a file, a mapping, a
+/// range of some larger store.
+///
+/// A 7z directory is written after the folders it describes and the folders
+/// themselves are scattered through the file, so a reader that can only move
+/// forward cannot read one without holding all of it. This is the contract that
+/// lets the reader ask for one folder at a time and forget it again; a file, a
+/// memory mapping and a block of bytes are all conforming sources.
+pub(open) trait RandomAccess {
+  /// Up to `len` bytes at `offset`, fewer when the source ends first.
+  fn read(Self, Int64, Int32) -> Bytes raise @moonzip.Refused
+  /// How many bytes the source holds.
+  fn size(Self) -> Int64
+}
+
+///|
+/// A source over bytes already in memory, which is what `un7z` reads.
+priv struct Memory {
+  data : Bytes
+}
+
+///|
+fn Memory::new(data : BytesView) -> Memory {
+  { data: data.to_owned(), }
+}
+
+///|
+impl RandomAccess for Memory with fn read(self, offset, len) {
+  let size = self.data.length().to_int64()
+  if offset < 0L || len < 0 || offset > size {
+    raise @moonzip.Truncated(at=0)
+  }
+  let stop = if offset + len.to_int64() > size {
+    size
+  } else {
+    offset + len.to_int64()
+  }
+  self.data[offset.to_int():stop.to_int()].to_owned()
+}
+
+///|
+impl RandomAccess for Memory with fn size(self) {
+  self.data.length().to_int64()
+}
+
+///|
+/// Read a 7z archive held in one block of memory.
 ///
 /// ```moonbit nocheck
 /// let members = @sevenz.un7z(archive[:])
@@ -73,12 +119,31 @@ pub fn un7z(
   data : BytesView,
   limit? : Int32,
 ) -> Array[Entry] raise @moonzip.Refused {
+  un7z_from(Memory::new(data), limit?)
+}
+
+///|
+/// Read a 7z archive through a random-access source.
+///
+/// The signature header and the directory are read first — a few kilobytes, and
+/// they have to be, since the directory is what says where the folders are. After
+/// that each folder is read, decoded and cut into its members before the next one
+/// is touched, so the archive itself is never held: what a caller pays for beyond
+/// the members is one folder, packed and unpacked.
+///
+/// ```moonbit nocheck
+/// let members = @sevenz.un7z_from(file)
+/// ```
+pub fn un7z_from(
+  source : &RandomAccess,
+  limit? : Int32,
+) -> Array[Entry] raise @moonzip.Refused {
   let bound = match limit {
     Some(n) => n
     None => -1
   }
-  let opened = open_archive(data)
-  let payloads = decode_streams(data, opened.streams, bound)
+  let opened = open_archive(source)
+  let payloads = decode_streams(source, opened.streams, bound)
   assemble(opened.files, payloads, bound)
 }
 
@@ -92,11 +157,15 @@ priv struct Opened {
 
 ///|
 /// Read the signature header and the directory.
-fn open_archive(data : BytesView) -> Opened raise @moonzip.Refused {
-  let c = Cursor::new(data)
-  if data.length() < 32 {
-    raise @moonzip.Truncated(at=data.length())
+fn open_archive(source : &RandomAccess) -> Opened raise @moonzip.Refused {
+  let size = source.size()
+  if size < 32L {
+    raise @moonzip.Truncated(at=size.to_int())
   }
+  // The signature header is fixed and small; everything after it is read where
+  // the directory says it is, which is what keeps this from holding the archive.
+  let start = source.read(0L, 32)
+  let c = Cursor::new(start[:])
   for i in 0..<6 {
     if c.byte() != magic[i] {
       raise @moonzip.Header(at=0, what="this is not a 7z archive")
@@ -108,7 +177,7 @@ fn open_archive(data : BytesView) -> Opened raise @moonzip.Refused {
   // The start header's checksum covers the three fields after it, which is what
   // tells a reader the archive was not truncated before it even looks for the
   // header.
-  let start_span = data[12:32]
+  let start_span = start[12:32]
   let got_start = @moonzip.crc32(start_span)
   if got_start != start_crc {
     raise @moonzip.Checksum(want=start_crc, got=got_start)
@@ -117,10 +186,8 @@ fn open_archive(data : BytesView) -> Opened raise @moonzip.Refused {
   let next_size = c.u64le()
   let next_crc = c.u32le()
   let header_at = 32L + next_offset
-  if header_at < 32L ||
-    next_size < 0L ||
-    header_at + next_size > data.length().to_int64() {
-    raise @moonzip.Truncated(at=data.length())
+  if header_at < 32L || next_size < 0L || header_at + next_size > size {
+    raise @moonzip.Truncated(at=size.to_int())
   }
   if next_size == 0L {
     // No header at all, which is what an archive of nothing is: the signature
@@ -131,7 +198,7 @@ fn open_archive(data : BytesView) -> Opened raise @moonzip.Refused {
       streams: Streams::{ pack: None, folders: [], subs: None, },
     }
   }
-  let raw = data[header_at.to_int():(header_at + next_size).to_int()]
+  let raw = source.read(header_at, next_size.to_int())
   let got_next = @moonzip.crc32(raw)
   if got_next != next_crc {
     raise @moonzip.Checksum(want=next_crc, got=got_next)
@@ -142,9 +209,9 @@ fn open_archive(data : BytesView) -> Opened raise @moonzip.Refused {
   let header_bytes = if hc.peek() == k_encoded_header {
     hc.byte() |> ignore
     let streams = read_streams(hc)
-    header_payload(data, streams)
+    header_payload(source, streams)
   } else {
-    raw.to_owned()
+    raw
   }
   read_directory(header_bytes)
 }
@@ -152,13 +219,13 @@ fn open_archive(data : BytesView) -> Opened raise @moonzip.Refused {
 ///|
 /// The decoded header, from the streams that describe it.
 fn header_payload(
-  archive : BytesView,
+  source : &RandomAccess,
   streams : Streams,
 ) -> Bytes raise @moonzip.Refused {
   // No bound: the directory has to be decoded to know anything at all, and the
   // format states its size in the signature header, so a bomb here is a bomb the
   // caller asked for by opening the file.
-  let made = decode_streams(archive, streams, -1)
+  let made = decode_streams(source, streams, -1)
   if made.length() != 1 {
     raise @moonzip.Header(at=0, what="a header that is not one stream")
   }
@@ -261,7 +328,7 @@ fn assemble(
 ///|
 /// Every folder decoded and cut into its substreams, in archive order.
 fn decode_streams(
-  archive : BytesView,
+  source : &RandomAccess,
   streams : Streams,
   limit : Int32,
 ) -> Array[Bytes] raise @moonzip.Refused {
@@ -279,12 +346,14 @@ fn decode_streams(
   // Where the packed bytes begin: the format counts from the byte after the
   // signature header, so an archive can be moved without rewriting its offsets.
   let mut at = 32L + pack.pos
+  let whole = source.size()
   for f in 0..<streams.folders.length() {
     let size = pack.sizes[f]
-    if size < 0L || at + size > archive.length().to_int64() {
-      raise @moonzip.Truncated(at=archive.length())
+    if size < 0L || at + size > whole {
+      raise @moonzip.Truncated(at=whole.to_int())
     }
-    let packed = archive[at.to_int():(at + size).to_int()]
+    // One folder, read where it lies and released when the next one starts.
+    let packed = source.read(at, size.to_int())
     at = at + size
     if pack.defined[f] {
       let got = @moonzip.crc32(packed)
@@ -369,7 +438,15 @@ fn substream_base(streams : Streams, f : Int32) -> Int32 {
 /// Reading a directory should not cost the directory's contents, which for a
 /// solid archive would be the whole thing.
 pub fn names(archive : BytesView) -> Array[String] raise @moonzip.Refused {
+  names_from(Memory::new(archive))
+}
+
+///|
+/// The names in an archive a source is reading, without decompressing anything.
+pub fn names_from(
+  source : &RandomAccess,
+) -> Array[String] raise @moonzip.Refused {
   // The header only, which for an archive whose directory is itself compressed
   // means decompressing the directory and nothing else.
-  open_archive(archive).files.map(file => file.name)
+  open_archive(source).files.map(file => file.name)
 }

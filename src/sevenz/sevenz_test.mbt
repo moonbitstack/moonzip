@@ -171,3 +171,101 @@ test "an archive past the bound is refused" {
   }
   assert_eq(error, Some(@moonzip.TooBig(limit=10)))
 }
+
+///|
+/// A source that remembers what it was asked for.
+///
+/// A reader that takes the whole archive and then slices it up is the thing random
+/// access exists to avoid, and the difference is not visible in the result — only
+/// in what was read. This records it.
+struct Probe {
+  data : Bytes
+  mut largest : Int32
+  mut total : Int64
+  mut reads : Int32
+}
+
+///|
+impl @sevenz.RandomAccess for Probe with fn read(self, offset, len) {
+  let size = self.data.length().to_int64()
+  if offset < 0L || offset > size {
+    raise @moonzip.Truncated(at=0)
+  }
+  let stop = if offset + len.to_int64() > size {
+    size
+  } else {
+    offset + len.to_int64()
+  }
+  let took = (stop - offset).to_int()
+  if took > self.largest {
+    self.largest = took
+  }
+  self.total += took.to_int64()
+  self.reads += 1
+  self.data[offset.to_int():stop.to_int()].to_owned()
+}
+
+///|
+impl @sevenz.RandomAccess for Probe with fn size(self) {
+  self.data.length().to_int64()
+}
+
+///|
+/// A chain of files large enough that holding all of them is visibly different
+/// from holding one: eight members, seven of them thirty kilobytes.
+fn many_members() -> Array[@sevenz.Entry] {
+  let out : Array[@sevenz.Entry] = []
+  for i in 0..<8 {
+    let body : Array[Byte] = []
+    for j in 0..<30000 {
+      body.push(((i * 31 + j * 7) % 251).to_byte())
+    }
+    out.push(@sevenz.Entry::new("part/\{i}.bin", Bytes::from_array(body)))
+  }
+  out
+}
+
+///|
+/// An archive read through a source is read a folder at a time, never whole.
+test "a source is asked for one folder at a time" {
+  let given = many_members()
+  let archive = @sevenz.sevenz(given[:], solid=false)
+  let probe = { data: archive, largest: 0, total: 0L, reads: 0, }
+  let back = @sevenz.un7z_from(probe)
+  assert_eq(back.length(), given.length())
+  for i in 0..<given.length() {
+    assert_eq(back[i].data, given[i].data)
+  }
+  // One folder is a thirtieth of this archive; the reader must never have asked
+  // for more than that plus a header, and must have asked more than once.
+  assert_true(probe.largest < archive.length() / 4)
+  assert_true(probe.reads >= given.length())
+  assert_true(probe.total >= archive.length().to_int64() / 2)
+}
+
+///|
+/// A listing costs the directory and nothing else.
+test "a listing reads the directory, not the data" {
+  let given = many_members()
+  let archive = @sevenz.sevenz(given[:], solid=false)
+  let probe = { data: archive, largest: 0, total: 0L, reads: 0, }
+  let names = @sevenz.names_from(probe)
+  assert_eq(names.length(), given.length())
+  assert_eq(names[0], "part/0.bin")
+  assert_true(probe.total < archive.length().to_int64() / 4)
+}
+
+///|
+/// A solid archive is one folder, so the reader holds one folder — which for an
+/// archive of eight files is what "one block" means, and the members still arrive.
+test "a solid archive is held one folder at a time too" {
+  let given = many_members()
+  let archive = @sevenz.sevenz(given[:], solid=true)
+  let probe = { data: archive, largest: 0, total: 0L, reads: 0, }
+  let back = @sevenz.un7z_from(probe)
+  assert_eq(back.length(), given.length())
+  for i in 0..<given.length() {
+    assert_eq(back[i].data, given[i].data)
+  }
+  assert_true(probe.largest < archive.length() + 1)
+}

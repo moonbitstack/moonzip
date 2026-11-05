@@ -9,9 +9,13 @@ import {
 // Values
 pub fn names(BytesView) -> Array[String] raise @moonzip.Refused
 
+pub fn names_from(&RandomAccess) -> Array[String] raise @moonzip.Refused
+
 pub fn sevenz(ArrayView[Entry], level? : Int32, how? : Method, solid? : Bool) -> Bytes
 
 pub fn un7z(BytesView, limit? : Int32) -> Array[Entry] raise @moonzip.Refused
+
+pub fn un7z_from(&RandomAccess, limit? : Int32) -> Array[Entry] raise @moonzip.Refused
 
 // Errors
 
@@ -64,3 +68,7 @@ pub fn Writer::signature(Self) -> Bytes
 // Type aliases
 
 // Traits
+pub(open) trait RandomAccess {
+  fn read(Self, Int64, Int32) -> Bytes raise @moonzip.Refused
+  fn size(Self) -> Int64
+}
