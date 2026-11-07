@@ -11,4 +11,11 @@ import {
   "moonbitstack/moonzip/zlib",
   "moonbitstack/moonzip/gzip",
   "moonbitstack/moonbase/base16",
+  "moonbitlang/core/compress/gzip" @sgzip,
 } for "test"
+
+// The standard library's gzip, used by the tests as the other reference.
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/compress/gzip" ],
+)

@@ -13,4 +13,11 @@ import {
   "moonbitstack/moonzip/deflate",
   "moonbitstack/moonbase/base16",
   "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/compress/flate",
 } for "test"
+
+// The standard library's flate, used by the tests as the other reference.
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/compress/flate" ],
+)

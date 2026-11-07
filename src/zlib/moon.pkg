@@ -9,4 +9,11 @@ import {
 
 import {
   "moonbitstack/moonzip/zlib",
+  "moonbitlang/core/compress/zlib" @szlib,
 } for "test"
+
+// The standard library's zlib, used by the tests as the other reference.
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/compress/zlib" ],
+)

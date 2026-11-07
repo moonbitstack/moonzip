@@ -22,4 +22,11 @@ import {
   "moonbitstack/moonzip/zip",
   "moonbitstack/mooncrypt/cipher/mode",
   "moonbitstack/moonbase/base16",
+  "moonbitlang/core/archive/zip" @szip,
 } for "test"
+
+// The standard library's zip, used by the tests as the other reference.
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/archive/zip" ],
+)
