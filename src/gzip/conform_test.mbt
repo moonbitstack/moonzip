@@ -452,3 +452,35 @@ test "a stored block after a compressed one reads back" {
   let packed = @deflate.deflate(body[:])
   assert_eq(@deflate.inflate(packed[:]), body)
 }
+
+///|
+/// The container takes the strategy the compressor does: the same parameter on
+/// `gzip` reaches the DEFLATE writer inside it, so a caller compressing a body
+/// through the container gets the same choice of parse as one that compresses
+/// the raw stream.
+test "the gzip container takes the long-match strategy" {
+  let body = sample(3)
+  for strat in [@deflate.Strategy::Greedy, @deflate.Strategy::LongMatch] {
+    let packed = @gzip.gzip(body[:], strategy=strat)
+    assert_eq(@gzip.gunzip(packed[:]), body)
+  }
+  // And a body that repeats at more than one period: the long-match parse
+  // writes fewer bytes than the greedy one, with the CRC and length still
+  // checked on the way back.
+  let words = ["the", "and", "brown", "fox", "jumps", "over", "lazy", "dog"]
+  let text : Array[Byte] = []
+  let mut s : UInt32 = 123456U
+  while text.length() < 120000 {
+    s = s * 1103515245U + 12345U
+    let w = words[(s >> 16).reinterpret_as_int() % 8]
+    for b in w {
+      text.push((b.to_int() & 0xFF).to_byte())
+    }
+    text.push(b' ')
+  }
+  let long_body = Bytes::from_array(text)
+  let greedy = @gzip.gzip(long_body[:])
+  let long = @gzip.gzip(long_body[:], strategy=LongMatch)
+  assert_true(long.length() < greedy.length())
+  assert_eq(@gzip.gunzip(long[:]), long_body)
+}

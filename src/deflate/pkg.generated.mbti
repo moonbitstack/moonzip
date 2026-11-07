@@ -7,7 +7,7 @@ import {
 }
 
 // Values
-pub fn deflate(BytesView, level? : Int32, window? : Int32, chain? : Int32, blocks? : Blocks) -> Bytes
+pub fn deflate(BytesView, level? : Int32, window? : Int32, chain? : Int32, blocks? : Blocks, strategy? : Strategy) -> Bytes
 
 pub fn inflate(BytesView, limit? : Int32) -> Bytes raise @moonzip.Refused
 
@@ -34,10 +34,19 @@ pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
 pub fn Reader::reset(Self) -> Unit
 pub fn Reader::rest(Self) -> Bytes
 
+#derive(Eq, @debug.Debug)
+pub(all) enum Strategy {
+  Greedy
+  LongMatch
+}
+pub fn Strategy::equal(Self, Self) -> Bool
+pub fn Strategy::not_equal(Self, Self) -> Bool
+pub fn Strategy::to_repr(Self) -> @debug.Repr
+
 type Writer
 pub fn Writer::finish(Self) -> Bytes
 pub fn Writer::flush(Self) -> Bytes
-pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, blocks? : Blocks) -> Self
+pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, blocks? : Blocks, strategy? : Strategy) -> Self
 pub fn Writer::push(Self, BytesView) -> Bytes
 pub fn Writer::reset(Self) -> Unit
 

@@ -11,7 +11,7 @@ pub fn crc32(BytesView) -> UInt32
 
 pub fn gunzip(BytesView, checksum? : Bool, length? : Bool, header_crc? : Bool, limit? : Int32) -> Bytes raise @moonzip.Refused
 
-pub fn gzip(BytesView, level? : Int32, window? : Int32, chain? : Int32, mtime? : UInt32, name? : String, comment? : String, os? : Int32) -> Bytes
+pub fn gzip(BytesView, level? : Int32, window? : Int32, chain? : Int32, strategy? : @deflate.Strategy, mtime? : UInt32, name? : String, comment? : String, os? : Int32) -> Bytes
 
 // Errors
 
@@ -23,7 +23,7 @@ pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
 
 type Writer
 pub fn Writer::finish(Self) -> Bytes
-pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, mtime? : UInt32, name? : String, comment? : String, os? : Int32, blocks? : @deflate.Blocks) -> Self
+pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, mtime? : UInt32, name? : String, comment? : String, os? : Int32, blocks? : @deflate.Blocks, strategy? : @deflate.Strategy) -> Self
 pub fn Writer::push(Self, BytesView) -> Bytes
 
 // Type aliases

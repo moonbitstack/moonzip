@@ -10,12 +10,14 @@
 /// why Go's `gzip.Writer` also writes zero unless told otherwise. Set `mtime`
 /// when the output is a file that should carry one.
 ///
-/// `level`, `window` and `chain` go straight through to the compressor.
+/// `level`, `window`, `chain` and `strategy` go straight through to the
+/// compressor.
 pub fn gzip(
   data : BytesView,
   level~ : Int32 = 6,
   window~ : Int32 = 32768,
   chain? : Int32,
+  strategy? : @deflate.Strategy,
   mtime~ : UInt32 = 0,
   name? : String,
   comment? : String,
@@ -40,7 +42,7 @@ pub fn gzip(
     Some(text) => latin1(out, text)
     None => ()
   }
-  for b in @deflate.deflate(data, level~, window~, chain?) {
+  for b in @deflate.deflate(data, level~, window~, chain?, strategy?) {
     out.push(b)
   }
   le32(out, crc32(data))

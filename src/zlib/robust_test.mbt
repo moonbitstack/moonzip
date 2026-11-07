@@ -67,3 +67,19 @@ test "the limit bounds a zlib stream" {
   }
   assert_true(said_no)
 }
+
+///|
+/// The container takes the strategy the compressor does: both parses decode back
+/// to the body, and the long-match one writes no more — with the Adler-32 checked
+/// on the way back.
+test "the zlib container takes the long-match strategy" {
+  let body = robust_body()
+  for strat in [@deflate.Strategy::Greedy, @deflate.Strategy::LongMatch] {
+    let packed = @zlib.zlib(body[:], strategy=strat)
+    assert_eq(@zlib.unzlib(packed[:]), body)
+  }
+  assert_true(
+    @zlib.zlib(body[:], strategy=@deflate.Strategy::LongMatch).length() <=
+    @zlib.zlib(body[:]).length(),
+  )
+}

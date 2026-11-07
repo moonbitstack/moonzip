@@ -34,6 +34,35 @@ pub extend Blocks with Eq::{equal, not_equal}
 pub extend Blocks with Debug::{to_repr}
 
 ///|
+/// How the writer searches for matches inside a block.
+///
+/// `Greedy` takes the longest match at the position the parse lands on and jumps
+/// to where it ends. It is the default, and it is the parse the output bytes have
+/// been pinned to, so a caller who omits the strategy gets exactly what the writer
+/// has always written.
+///
+/// `LongMatch` re-parses the block so that a copy is chosen for what it costs,
+/// not for how long it is at the spot the walk happens to be at: a shorter copy
+/// that leaves a longer one a few positions on is worth taking, and a copy that
+/// the greedy walk cut off because a longer one came first is worth taking
+/// instead. It searches harder and writes fewer bytes on text that repeats at more
+/// than one period; on an incompressible body the two agree.
+#derive(Eq, Debug)
+pub(all) enum Strategy {
+  /// The longest match at the position the parse lands on. The default.
+  Greedy
+  /// An optimal parse over the block: the cheapest way to reach the end, which is
+  /// where a longer match is paid for rather than taken.
+  LongMatch
+}
+
+///|
+pub extend Strategy with Eq::{equal, not_equal}
+
+///|
+pub extend Strategy with Debug::{to_repr}
+
+///|
 /// Compress into a DEFLATE stream, one block over the whole input.
 ///
 /// LZ77 finds back-references with a hash chain over the window, capped so the
@@ -57,6 +86,7 @@ pub fn deflate(
   window~ : Int32 = 32768,
   chain? : Int32,
   blocks~ : Blocks = Auto,
+  strategy? : Strategy,
 ) -> Bytes {
   guard level >= 0 && level <= 9 else {
     abort("deflate: level \{level} is not between 0 and 9")
@@ -78,7 +108,21 @@ pub fn deflate(
     good,
   }
   let bw = BitWriter::new()
-  emit_block(bw, buf, data, 0, buf.length(), window, finder, blocks, true)
+  emit_block(
+    bw,
+    buf,
+    data,
+    0,
+    buf.length(),
+    window,
+    finder,
+    blocks,
+    match strategy {
+      Some(s) => s
+      None => Greedy
+    },
+    true,
+  )
   bw.finish()
 }
 
@@ -302,6 +346,7 @@ struct Writer {
   window : Int32
   finder : Finder
   blocks : Blocks
+  strategy : Strategy
   mut closed : Bool
 }
 
@@ -311,6 +356,7 @@ pub fn Writer::new(
   window~ : Int32 = 32768,
   chain? : Int32,
   blocks~ : Blocks = Auto,
+  strategy~ : Strategy = Greedy,
 ) -> Writer {
   guard level >= 0 && level <= 9 else {
     abort("deflate: level \{level} is not between 0 and 9")
@@ -340,6 +386,7 @@ pub fn Writer::new(
     } else {
       blocks
     },
+    strategy,
     closed: false,
   }
 }
@@ -361,6 +408,7 @@ pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
       self.window,
       self.finder,
       self.blocks,
+      self.strategy,
       false,
     )
     self.from += chunk
@@ -398,6 +446,7 @@ pub fn Writer::finish(self : Writer) -> Bytes {
       self.window,
       self.finder,
       self.blocks,
+      self.strategy,
       true,
     )
   }
@@ -430,6 +479,7 @@ pub fn Writer::flush(self : Writer) -> Bytes {
       self.window,
       self.finder,
       self.blocks,
+      self.strategy,
       false,
     )
     self.from = self.buf.length()
@@ -475,9 +525,10 @@ fn emit_block(
   window : Int32,
   finder : Finder,
   blocks : Blocks,
+  strategy : Strategy,
   last : Bool,
 ) -> Unit {
-  let (lens, dists) = parse(buf, words, from, to, window, finder)
+  let (lens, dists) = parse(buf, words, from, to, window, finder, strategy)
   match blocks {
     Fixed => write_fixed(bw, lens, dists, last)
     Dynamic => write_dynamic(bw, lens, dists, last)
@@ -502,12 +553,41 @@ fn emit_block(
 }
 
 ///|
-/// The LZ77 parse: one entry per token, a literal as a zero length with its
-/// byte in the distance slot, a match as its length and distance. The tokens
-/// are kept rather than emitted on the fly because the writer measures a
-/// candidate block before it commits to one, and measuring means walking the
-/// tokens twice.
+/// The parse, one entry per token, a literal as a zero length with its byte in
+/// the distance slot, a match as its length and distance. The tokens are kept
+/// rather than emitted on the fly because the writer measures a candidate block
+/// before it commits to one, and measuring means walking the tokens twice.
+///
+/// `Greedy` runs the walk as it has always done. `LongMatch` runs it a few more
+/// times, each one pricing a copy at what the block's own codes charge for it and
+/// keeping the parse that comes out smallest — which is where a longer match is
+/// paid for rather than taken.
 fn parse(
+  buf : Array[Byte],
+  words : BytesView,
+  from : Int32,
+  to : Int32,
+  window : Int32,
+  finder : Finder,
+  strategy : Strategy,
+) -> (Array[Int32], Array[Int32]) {
+  let base = greedy_parse(buf, words, from, to, window, finder)
+  if strategy is Greedy {
+    return base
+  }
+  // A very large block keeps the greedy walk: the optimal tables are linear in
+  // the block, and a block this big is rare in one-shot and never in streaming,
+  // where blocks are fixed at the chunk size.
+  if to - from <= 0 || to - from > opt_block_limit {
+    return base
+  }
+  optimal(buf, from, to, window, finder, base)
+}
+
+///|
+/// The greedy walk: the longest match at the position the parse lands on.
+///
+fn greedy_parse(
   buf : Array[Byte],
   words : BytesView,
   from : Int32,
@@ -608,6 +688,337 @@ fn parse(
     i += taken
   }
   (lens, dists)
+}
+
+// ------------------------------------------------------------ the optimal parse
+
+///|
+/// The price scale the optimal parse works in: four fractional bits, because the
+/// difference between two parses on a block is a few hundred bits spread over
+/// thousands of decisions, and whole bits round them all to the same value.
+let price_scale : Int32 = 16
+
+///|
+/// The price of a symbol the round's code does not assign a width to — the round
+/// never emitted it. High, but not infinite: a parse that refused a symbol the
+/// last round missed could never introduce it, and the first round's set is the
+/// greedy parse's, which is a sound one.
+let unseen_price : Int32 = 15 * price_scale
+
+///|
+/// How many candidate copies are kept at each position: each strictly longer than
+/// the one before it, at the nearest distance that reaches it. That set is where
+/// a longer match at a farther distance meets a shorter one close by — the trade
+/// the greedy walk resolves for the longer one alone.
+let opt_candidates : Int32 = 16
+
+///|
+/// A block this big still takes the optimal walk on every target in reasonable
+/// time; past it the parse falls back to the greedy walk, because the tables the
+/// walk keeps are linear in the block. The streaming writer's blocks are far
+/// smaller, so this only bounds a very large one-shot.
+let opt_block_limit : Int32 = 1 << 17
+
+///|
+/// How many times the block is re-walked, each round priced from the round
+/// before: a parse chosen for one set of codes is re-priced for the codes it
+/// itself produced, and the two converge in three.
+let opt_rounds : Int32 = 3
+
+///|
+/// The width a literal/length symbol has in this round's code, or the price of
+/// an unseen one.
+fn lit_price(widths : FixedArray[Int32], sym : Int32) -> Int32 {
+  let w = widths[sym]
+  if w > 0 {
+    w * price_scale
+  } else {
+    unseen_price
+  }
+}
+
+///|
+/// The width a distance symbol has in this round's code, or the price of an
+/// unseen one.
+fn dist_price(widths : FixedArray[Int32], sym : Int32) -> Int32 {
+  let w = widths[sym]
+  if w > 0 {
+    w * price_scale
+  } else {
+    unseen_price
+  }
+}
+
+///|
+/// The code lengths a parse's tokens would give the block: the same counts the
+/// dynamic writer counts, so the price a round pays is the price the block the
+/// round's parse would emit actually pays.
+fn widths_of(
+  lens : Array[Int32],
+  dists : Array[Int32],
+) -> (FixedArray[Int32], FixedArray[Int32]) {
+  let lit_freq = Array::make(286, 0)
+  let dist_freq = Array::make(30, 0)
+  // The end-of-block code is in every block, so it is in the counts too.
+  lit_freq[256] = 1
+  for i in 0..<lens.length() {
+    if lens[i] == 0 {
+      lit_freq[dists[i]] += 1
+    } else {
+      lit_freq[257 + length_index(lens[i])] += 1
+      dist_freq[distance_index(dists[i])] += 1
+    }
+  }
+  let mut any_distance = false
+  for i in 0..<30 {
+    if dist_freq[i] > 0 {
+      any_distance = true
+    }
+  }
+  if !any_distance {
+    dist_freq[0] = 1
+  }
+  (code_lengths(lit_freq, 15), code_lengths(dist_freq, 15))
+}
+
+///|
+/// What the best form of these tokens costs, the way the block writer measures
+/// it: stored, fixed, and the dynamic candidate written out, keeping the
+/// smallest. The greedy and the optimal parses are compared on this, so the
+/// answer is the size of the block that would actually be written, not of an
+/// encoding the block would not take.
+fn best_form_bits(
+  span : Int32,
+  lens : Array[Int32],
+  dists : Array[Int32],
+) -> Int32 {
+  let stored = stored_cost(span)
+  let fixed = fixed_cost(lens, dists)
+  let probe = BitWriter::new()
+  write_dynamic(probe, lens, dists, true)
+  let dynam = probe.count
+  let m = if fixed < stored { fixed } else { stored }
+  if dynam < m {
+    dynam
+  } else {
+    m
+  }
+}
+
+///|
+/// The optimal parse: the block is re-walked a few times, each round priced from
+/// the codes the walk before produced, and the one that comes out smallest is
+/// kept. The greedy parse is always among the candidates, so this writes no more
+/// than it does — a round that does not win is dropped, and the greedy parse is
+/// what a body of one repeated byte, or of noise, keeps.
+fn optimal(
+  buf : Array[Byte],
+  from : Int32,
+  to : Int32,
+  window : Int32,
+  finder : Finder,
+  greedy : (Array[Int32], Array[Int32]),
+) -> (Array[Int32], Array[Int32]) {
+  let span = to - from
+  let mut best = greedy
+  let mut best_bits = best_form_bits(span, greedy.0, greedy.1)
+  // The prices start from the greedy parse's own code, because that is the set
+  // of symbols a first walk is known to need.
+  let w0 = widths_of(greedy.0, greedy.1)
+  let mut lit_w = w0.0
+  let mut dist_w = w0.1
+  for _ in 0..<opt_rounds {
+    let (lens, dists) = optimal_round(
+      buf, from, to, window, finder, lit_w, dist_w,
+    )
+    let bits = best_form_bits(span, lens, dists)
+    if bits < best_bits {
+      best_bits = bits
+      best = (lens, dists)
+    }
+    let w = widths_of(lens, dists)
+    lit_w = w.0
+    dist_w = w.1
+  }
+  best
+}
+
+///|
+/// One round: the cheapest way to reach every position of the block, priced from
+/// this round's code.
+///
+/// A token costs what it costs on its own — a literal at its byte's width, a
+/// match at its length and distance widths, the width the code assigns — and the
+/// price of a token does not depend on the path that got to it. That is what
+/// makes the walk one state: `cost[i]` is the cheapest price of having encoded
+/// everything up to the i-th byte, and a step to a later position is one
+/// subtraction away. The greedy walk, by contrast, is a state machine of one
+/// choice, because it never prices the copy it is taking.
+fn optimal_round(
+  buf : Array[Byte],
+  from : Int32,
+  to : Int32,
+  window : Int32,
+  finder : Finder,
+  lit_w : FixedArray[Int32],
+  dist_w : FixedArray[Int32],
+) -> (Array[Int32], Array[Int32]) {
+  let span = to - from
+  let blen = FixedArray::make(span * opt_candidates, 0)
+  let bdist = FixedArray::make(span * opt_candidates, 0)
+  let bcnt = FixedArray::make(span, 0)
+  gather(buf, from, to, window, finder, blen, bdist, bcnt)
+  let inf = 1 << 30
+  let cost = FixedArray::make(span + 1, inf)
+  let prev_len = FixedArray::make(span + 1, -1)
+  let prev_dist = FixedArray::make(span + 1, 0)
+  cost[0] = 0
+  for i in 0..<span {
+    let base = cost.unsafe_get(i)
+    if base >= inf {
+      continue
+    }
+    // The literal: one byte, at this byte's width.
+    let li = base + lit_price(lit_w, buf.unsafe_get(from + i).to_int())
+    if li < cost.unsafe_get(i + 1) {
+      cost.unsafe_set(i + 1, li)
+      prev_len.unsafe_set(i + 1, -1)
+      prev_dist.unsafe_set(i + 1, 0)
+    }
+    // The copies: every candidate at this position, at the distance that reaches
+    // it. A copy is a match of at least three bytes, which is what the format
+    // codes, so the candidates below it are not here.
+    let at = i * opt_candidates
+    let cnt = bcnt.unsafe_get(i)
+    for c in 0..<cnt {
+      let len = blen.unsafe_get(at + c)
+      let dist = bdist.unsafe_get(at + c)
+      let li = length_index(len)
+      let dc = distance_index(dist)
+      let m = base +
+        lit_price(lit_w, 257 + li) +
+        length_extra[li] * price_scale +
+        dist_price(dist_w, dc) +
+        dist_extra[dc] * price_scale
+      let stop = i + len
+      if m < cost.unsafe_get(stop) {
+        cost.unsafe_set(stop, m)
+        prev_len.unsafe_set(stop, len)
+        prev_dist.unsafe_set(stop, dist)
+      }
+    }
+  }
+  // Read the cheapest path back out: a position the match reached steps back by
+  // the match's length, one the literal reached by one.
+  let lens : Array[Int32] = []
+  let dists : Array[Int32] = []
+  let mut pos = span
+  while pos > 0 {
+    let l = prev_len.unsafe_get(pos)
+    if l == -1 {
+      lens.push(0)
+      dists.push(buf.unsafe_get(from + pos - 1).to_int())
+      pos = pos - 1
+    } else {
+      lens.push(l)
+      dists.push(prev_dist.unsafe_get(pos))
+      pos = pos - l
+    }
+  }
+  // The path was read back from the end, so the tokens come out in reverse: a
+  // second pass flips them into the order the writer expects.
+  let n = lens.length()
+  for i in 0..<(n / 2) {
+    let j = n - 1 - i
+    let tmp = lens[i]
+    lens[i] = lens[j]
+    lens[j] = tmp
+    let td = dists[i]
+    dists[i] = dists[j]
+    dists[j] = td
+  }
+  (lens, dists)
+}
+
+///|
+/// Every candidate copy at every position, in one pass over the chain.
+///
+/// The chain is walked newest-first, as the greedy walk walks it, so a candidate
+/// that beats the best length so far is also the nearest distance that reaches
+/// that length: the list is increasing in length and the distances it holds are
+/// the ones that first got there. A copy shorter than the next candidate's is
+/// priced at the nearer distance, which is what makes the list worth more than
+/// its first entry.
+fn gather(
+  buf : Array[Byte],
+  from : Int32,
+  to : Int32,
+  window : Int32,
+  finder : Finder,
+  blen : FixedArray[Int32],
+  bdist : FixedArray[Int32],
+  bcnt : FixedArray[Int32],
+) -> Unit {
+  let n = to
+  let head = Array::make(1 << 15, -1)
+  let prev = Array::make(if buf.length() > 0 { buf.length() } else { 1 }, -1)
+  // The retained window goes into the chain first, or the first block of a
+  // stream could not match against anything before it.
+  let mut i = 0
+  while i < from {
+    if i + min_match <= n {
+      let h = hash3(buf, i)
+      prev.unsafe_set(i, head.unsafe_get(h))
+      head.unsafe_set(h, i)
+    }
+    i += 1
+  }
+  i = from
+  while i < n {
+    // A position this close to the end of the block has no room left for a
+    // match, which is what `hash3` and the candidate walk would read past:
+    // those positions keep no candidates and go out as literals.
+    if i + min_match <= n {
+      let cap = if n - i < max_match { n - i } else { max_match }
+      let h = hash3(buf, i)
+      let mut j = head.unsafe_get(h)
+      prev.unsafe_set(i, j)
+      head.unsafe_set(h, i)
+      let mut best = 0
+      let mut count = 0
+      let mut left = finder.depth
+      let slot = (i - from) * opt_candidates
+      while j >= 0 && left > 0 && count < opt_candidates {
+        let dist = i - j
+        if dist > window {
+          break
+        }
+        // The byte just past the best match so far decides whether this
+        // candidate can beat it, before a single byte is compared.
+        if buf.unsafe_get(j + best) == buf.unsafe_get(i + best) {
+          let mut len = 0
+          while len < cap && buf.unsafe_get(j + len) == buf.unsafe_get(i + len) {
+            len += 1
+          }
+          if len > best && len >= min_match {
+            blen.unsafe_set(slot + count, len)
+            bdist.unsafe_set(slot + count, dist)
+            count += 1
+            best = len
+            if len >= cap {
+              break
+            }
+          }
+        }
+        j = prev.unsafe_get(j)
+        left -= 1
+      }
+      bcnt.unsafe_set(i - from, count)
+    } else {
+      prev.unsafe_set(i, -1)
+    }
+    i += 1
+  }
 }
 
 ///|

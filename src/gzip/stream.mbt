@@ -42,9 +42,10 @@ pub fn Writer::new(
   comment? : String,
   os~ : Int32 = 255,
   blocks~ : @deflate.Blocks = Auto,
+  strategy~ : @deflate.Strategy = @deflate.Strategy::Greedy,
 ) -> Writer {
   {
-    inner: @deflate.Writer::new(level~, window~, chain?, blocks~),
+    inner: @deflate.Writer::new(level~, window~, chain?, blocks~, strategy~),
     sum: @moonzip.Crc::new(),
     size: 0,
     header: header_bytes(level, mtime, name?, comment?, os),

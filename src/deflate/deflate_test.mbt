@@ -393,3 +393,123 @@ test "a body that builds a tree deeper than the limit still round-trips" {
     }
   }
 }
+
+///|
+/// A body that repeats at more than one period: the shape where a longer match
+/// at a farther distance beats the shorter one the greedy walk takes.
+fn prose(cap : Int32, seed : UInt32) -> Bytes {
+  let words = [
+    "the", "and", "brown", "fox", "jumps", "over", "lazy", "dog", "quick", "runs",
+    "then", "back", "across", "past", "slowly", "under",
+  ]
+  let out : Array[Byte] = []
+  let mut s : UInt32 = seed
+  while out.length() < cap {
+    s = s * 1103515245U + 12345U
+    let w = words[(s >> 16).reinterpret_as_int() % 16]
+    for b in w {
+      out.push((b.to_int() & 0xFF).to_byte())
+    }
+    out.push(b' ')
+  }
+  Bytes::from_array(out)
+}
+
+///|
+/// The long-match strategy round-trips every body shape, the same seven the
+/// greedy walk is checked on.
+test "the long-match strategy round-trips every body" {
+  for kind in 0..<7 {
+    let body = body_of(kind)
+    let packed = @deflate.deflate(body[:], strategy=LongMatch)
+    assert_eq(@deflate.inflate(packed[:]), body)
+  }
+}
+
+///|
+/// Omitting the strategy and asking for `Greedy` are the same call: the default
+/// is the parse the output has always been, so a caller who does not choose
+/// gets exactly what they have always gotten.
+test "the default strategy is the greedy walk" {
+  let body = prose(40000, 123456U)
+  assert_eq(
+    @deflate.deflate(body[:]),
+    @deflate.deflate(body[:], strategy=Greedy),
+  )
+}
+
+///|
+/// The long-match parse is among the candidates the block writer measures, so
+/// it writes no more than the greedy one over every body it is given: the win
+/// is on some, never a loss on any.
+test "the long-match strategy never writes more than the greedy walk" {
+  for kind in 0..<7 {
+    let body = body_of(kind)
+    let greedy = @deflate.deflate(body[:])
+    let long = @deflate.deflate(body[:], strategy=LongMatch)
+    assert_true(long.length() <= greedy.length())
+  }
+  for cap in [60000, 120000] {
+    let body = prose(cap, 123456U)
+    let greedy = @deflate.deflate(body[:])
+    let long = @deflate.deflate(body[:], strategy=LongMatch)
+    assert_true(long.length() <= greedy.length())
+  }
+}
+
+///|
+/// On a body that repeats at more than one period the long-match parse writes
+/// fewer bytes than the greedy walk: a shorter copy that leaves a longer one a
+/// few positions on is worth taking, and the greedy walk does not see it.
+test "the long-match strategy saves bytes on a body with more than one period" {
+  let body = prose(120000, 123456U)
+  let greedy = @deflate.deflate(body[:])
+  let long = @deflate.deflate(body[:], strategy=LongMatch)
+  assert_true(long.length() < greedy.length())
+  assert_eq(@deflate.inflate(long[:]), body)
+}
+
+///|
+/// The long-match parse is deterministic: the same body, twice, is the same
+/// bytes, so a build that turns the strategy on is reproducible.
+test "the long-match strategy is deterministic" {
+  let body = prose(60000, 4242U)
+  assert_eq(
+    @deflate.deflate(body[:], strategy=LongMatch),
+    @deflate.deflate(body[:], strategy=LongMatch),
+  )
+}
+
+///|
+/// A level of zero is stored blocks whatever the strategy is: there is nothing
+/// to parse, and the strategy has nothing to decide.
+test "level zero stores the input under either strategy" {
+  let body = body_of(3)
+  assert_eq(
+    @deflate.deflate(body[:], level=0),
+    @deflate.deflate(body[:], level=0, strategy=LongMatch),
+  )
+}
+
+///|
+/// The streaming writer takes the strategy the one-shot does, and a block cut at
+/// the streaming chunk boundary decodes to the bytes it was given.
+test "the streaming writer round-trips a body with the long-match strategy" {
+  let body = prose(90000, 999U)
+  let w = @deflate.Writer::new(strategy=LongMatch)
+  let out : Array[Byte] = []
+  // Push in pieces smaller than a chunk, so a block boundary is not the same
+  // as a push boundary.
+  let mut i = 0
+  while i < body.length() {
+    let stop = if i + 1000 < body.length() { i + 1000 } else { body.length() }
+    for b in w.push(body[i:stop]) {
+      out.push(b)
+    }
+    i = stop
+  }
+  for b in w.finish() {
+    out.push(b)
+  }
+  assert_eq(@deflate.inflate(Bytes::from_array(out)[:]), body)
+}

@@ -7,14 +7,15 @@
 /// This, not raw DEFLATE, is what HTTP's `Content-Encoding: deflate` was
 /// specified to mean — a detail that half the servers on the web got wrong,
 /// which is why `gzip` won.
-/// `level`, `window` and `chain` go straight through to the compressor; the
-/// header says which window was used, so a reader knows how much history it
-/// must keep.
+/// `level`, `window`, `chain` and `strategy` go straight through to the
+/// compressor; the header says which window was used, so a reader knows how much
+/// history it must keep.
 pub fn zlib(
   data : BytesView,
   level~ : Int32 = 6,
   window~ : Int32 = 32768,
   chain? : Int32,
+  strategy? : @deflate.Strategy,
 ) -> Bytes {
   // CMF: DEFLATE, and how big the window is, as log2 minus eight. FLG: the
   // compression level for information, no preset dictionary, and five check
@@ -23,7 +24,7 @@ pub fn zlib(
   let rough = (flevel(level) << 6) | 0
   let flg = rough + (31 - (cmf * 256 + rough) % 31) % 31
   let out : Array[Byte] = [cmf.to_byte(), flg.to_byte()]
-  for b in @deflate.deflate(data, level~, window~, chain?) {
+  for b in @deflate.deflate(data, level~, window~, chain?, strategy?) {
     out.push(b)
   }
   let sum = adler32(data)
