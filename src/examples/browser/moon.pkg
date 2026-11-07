@@ -1,0 +1,14 @@
+// The page's engine: this package is built to JavaScript in the docs workflow and
+// the front page calls it. It is not part of the library's public packages — it
+// exists so the demonstration runs the library rather than the platform's own
+// compressor. The `link` exports are the two entry points the page takes.
+import {
+  "moonbitstack/moonzip/deflate",
+  "moonbitstack/moonzip/gzip",
+  "moonbitstack/moonzip/zlib",
+  "moonbitstack/moonzip/brotli",
+}
+
+options(
+  link: { "js": { "exports": [ "compress", "decompress" ], "format": "esm" } },
+)

@@ -527,11 +527,12 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
 
 <section id="play">
   <div class="wrap">
-    <h2><span class="num">04 — In the browser</span>DEFLATE, where you can watch it.</h2>
+    <h2><span class="num">04 — In the browser</span>The library, where you can watch it.</h2>
     <p class="sub">
-      Browsers carry the same algorithm this library implements. Type something and
-      compress it with the platform's own DEFLATE — the numbers are the ones the
-      format actually produces, not a simulation.
+      Type something and compress it with this library, compiled from its own
+      source to JavaScript and running in the page — not the platform's own
+      compressor, and not a simulation. The numbers are the ones the format
+      actually produces.
     </p>
 
     <div class="play">
@@ -539,10 +540,10 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
         <label class="play__label" for="input">input</label>
         <textarea id="input" spellcheck="false">the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog. the quick brown fox jumps over the lazy dog.</textarea>
         <div class="play__row">
-          <button class="chip" data-format="deflate-raw" aria-pressed="true">deflate</button>
+          <button class="chip" data-format="deflate" aria-pressed="true">deflate</button>
           <button class="chip" data-format="gzip" aria-pressed="false">gzip</button>
-          <button class="chip" data-format="deflate" aria-pressed="false">zlib</button>
-          <button class="chip" data-format="brotli" aria-pressed="false" id="chip-brotli" hidden>brotli</button>
+          <button class="chip" data-format="zlib" aria-pressed="false">zlib</button>
+          <button class="chip" data-format="brotli" aria-pressed="false">brotli</button>
         </div>
       </div>
       <div class="play__cell">
@@ -554,8 +555,8 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
       </div>
     </div>
     <p class="tnote" id="play-note">
-      Runs in your browser through <code>CompressionStream</code>, which is the
-      same algorithm the platform ships. No input leaves this page.
+      Runs in your browser through the library's own code, built from source to
+      JavaScript and shipped with this page. No input leaves this page.
     </p>
   </div>
 </section>
@@ -576,12 +577,12 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
       <tbody>
         <tr><td class="mono">root</td><td class="mono">crc32 · adler32 · crc32c</td><td class="mono">(BytesView) → UInt32</td><td>And <code>Crc</code>, <code>Adler</code>, <code>Castagnoli</code> for a body taken a piece at a time.</td></tr>
         <tr><td class="mono">root</td><td class="mono">mask_crc32c</td><td class="mono">(UInt32) → UInt32</td><td>The mask Snappy puts on a CRC before a frame carries it.</td></tr>
-        <tr><td class="mono">deflate</td><td class="mono">deflate</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, blocks~=Auto) → Bytes</td><td><code>Blocks</code> is <code>Auto</code>, <code>Fixed</code>, <code>Dynamic</code> or <code>Stored</code>.</td></tr>
+        <tr><td class="mono">deflate</td><td class="mono">deflate</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, blocks~=Auto, strategy?) → Bytes</td><td><code>Blocks</code> is <code>Auto</code>, <code>Fixed</code>, <code>Dynamic</code> or <code>Stored</code>; <code>strategy</code> is <code>Greedy</code> (the default, byte for byte what it has always written) or <code>LongMatch</code>, a harder parse that writes fewer bytes on a body that repeats at more than one period.</td></tr>
         <tr><td class="mono">deflate</td><td class="mono">inflate</td><td class="mono">(BytesView, limit?) → Bytes raise</td><td><code>Refused</code> carries the byte offset it gave up at.</td></tr>
-        <tr><td class="mono">deflate</td><td class="mono">Writer · Reader</td><td class="mono">push(BytesView) → Bytes · finish() → Bytes</td><td>The streaming pair the containers are built on.</td></tr>
-        <tr><td class="mono">gzip</td><td class="mono">gzip · gunzip</td><td class="mono">(BytesView, level~=6, mtime~=0, name?, comment?, os~=255) → Bytes</td><td>mtime is zero so the same input gives the same bytes.</td></tr>
+        <tr><td class="mono">deflate</td><td class="mono">Writer · Reader</td><td class="mono">new(level~, window~, chain?, blocks~, strategy~) · push → finish</td><td>The streaming pair the containers are built on; the writer takes the same <code>strategy</code> as the one-shot.</td></tr>
+        <tr><td class="mono">gzip</td><td class="mono">gzip · gunzip</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, strategy?, mtime~=0, name?, comment?, os~=255) → Bytes</td><td>mtime is zero so the same input gives the same bytes; <code>strategy</code> reaches the DEFLATE writer inside.</td></tr>
         <tr><td class="mono">gzip</td><td class="mono">Writer · Reader</td><td class="mono">new(level~, mtime~, name?, comment?, os~) · new(checksum~, length~, header_crc~, limit?)</td><td>Checks default on; a caller recovering a broken transfer turns them off.</td></tr>
-        <tr><td class="mono">zlib</td><td class="mono">zlib · unzlib</td><td class="mono">(BytesView, level~=6, window~=32768) → Bytes</td><td>The window goes in the header, so a reader learns it before it starts.</td></tr>
+        <tr><td class="mono">zlib</td><td class="mono">zlib · unzlib</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, strategy?) → Bytes</td><td>The window goes in the header, so a reader learns it before it starts; <code>strategy</code> reaches the DEFLATE writer inside.</td></tr>
         <tr><td class="mono">zip</td><td class="mono">zip</td><td class="mono">(ArrayView[Entry], level~, codecs~, zip64~, descriptor~, password?) → Bytes</td><td>Raises nothing: a writer has no input to distrust.</td></tr>
         <tr><td class="mono">zip</td><td class="mono">unzip · names · entry</td><td class="mono">(BytesView, limit?, codecs~, password?) → Array[Entry]</td><td><code>names</code> reads the directory without expanding anything.</td></tr>
         <tr><td class="mono">zip</td><td class="mono">Writer · Reader</td><td class="mono">add(Entry) → Bytes · finish() → Bytes</td><td>And <code>Reader::next</code> walks local headers, descriptors and all.</td></tr>
@@ -717,21 +718,26 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
 })();
 
 // -------------------------------------------------------------- the playground
+// The engine is this library, compiled from source to JavaScript by the docs
+// build. It is an ES module that exports `compress` and `decompress`; the
+// MoonBit js backend passes bytes across the boundary as a small object, so the
+// page wraps a `Uint8Array` and unwraps the result.
+const loadEngine = import("./engine/moonzip.js");
+
+function wrap(bytes) {
+  return { buf: bytes, len: bytes.length };
+}
+
+function unwrap(x) {
+  return x && x.buf ? x.buf : x;
+}
+
 (function () {
   const input = document.getElementById("input");
   const meter = document.getElementById("meter");
-  const note = document.getElementById("play-note");
   const run = document.getElementById("run");
-  let format = "deflate-raw";
-
-  // `CompressionStream` grew brotli after the other three, and support is still
-  // uneven, so the chip appears only where the constructor accepts it.
-  try {
-    new CompressionStream("brotli");
-    document.getElementById("chip-brotli").hidden = false;
-  } catch (unsupported) {
-    // Nothing to do: the format simply is not offered here.
-  }
+  let format = "deflate";
+  let engine = null;
 
   document.querySelectorAll(".chip[data-format]").forEach((chip) => {
     chip.addEventListener("click", () => {
@@ -742,25 +748,17 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
     });
   });
 
-  async function squeeze(bytes, how) {
-    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream(how));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
-  }
-
-  async function expand(bytes, how) {
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(how));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
-  }
-
   run.addEventListener("click", async () => {
-    if (typeof CompressionStream === "undefined") {
-      meter.textContent = "this browser has no CompressionStream";
+    try {
+      engine = engine || (await loadEngine);
+    } catch (why) {
+      meter.textContent = "the engine did not load: " + why.message;
       return;
     }
     const raw = new TextEncoder().encode(input.value);
     try {
-      const packed = await squeeze(raw, format);
-      const back = await expand(packed, format);
+      const packed = unwrap(engine.compress(wrap(raw), format));
+      const back = unwrap(engine.decompress(wrap(packed), format));
       const same = back.length === raw.length && back.every((b, i) => b === raw[i]);
       const ratio = raw.length ? (100 - (packed.length * 100) / raw.length) : 0;
       meter.innerHTML =

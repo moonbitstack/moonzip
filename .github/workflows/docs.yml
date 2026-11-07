@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "docs/**"
+      - "src/examples/browser/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -28,6 +29,22 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+
+      # The front page runs the library, not the platform's own compressor:
+      # this builds the browser package from source to JavaScript and drops the
+      # artifact where the page loads it from. The output is generated, never
+      # checked in.
+      - name: install
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: the engine
+        run: |
+          moon update
+          moon build src/examples/browser --target js --release
+          mkdir -p docs/engine
+          cp _build/js/release/build/examples/browser/browser.js docs/engine/moonzip.js
 
       - name: configure
         uses: actions/configure-pages@v6
