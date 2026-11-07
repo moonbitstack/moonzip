@@ -276,6 +276,49 @@ zlib      -> 93 bytes, back to 9000</pre>
         </p>
       </div>
     </div>
+
+    <div class="pair">
+      <div class="pair__label">a longer match</div>
+      <div>
+        <p style="margin:0 0 18px;color:var(--ink-soft);font-size:14.5px">
+          The writer can parse a block two ways. <code>Greedy</code>, the default,
+          takes the longest match at the spot the walk lands on and jumps to where
+          it ends — and it is byte for byte what the writer has always produced, so
+          a caller who omits the strategy gets the bytes they have always gotten.
+          <code>LongMatch</code> re-walks the block a few times, pricing a copy at
+          what the block's own codes charge for it, and keeps the parse that comes
+          out smallest: it pays for a longer match at a farther distance instead of
+          the shorter one close by.
+        </p>
+        <div class="code-head">moonbit<span></span></div>
+<pre class="code"><code class="hl">fn main raise {
+  let out : Array[Byte] = []
+  for _ in 0..&lt;200 {
+    for b in "the quick brown fox jumps over the lazy dog. " {
+      out.push((b.to_int() % 256).to_byte())
+    }
+  }
+  let body = Bytes::from_array(out)
+
+  let raw = @deflate.deflate(body[:])
+  let long = @deflate.deflate(body[:], strategy=@deflate.Strategy::LongMatch)
+  println("greedy   -> \{raw.length()} bytes, back to \{@deflate.inflate(raw[:]).length()}")
+  println("long     -> \{long.length()} bytes, back to \{@deflate.inflate(long[:]).length()}")
+  assert_eq(@deflate.deflate(body[:]), @deflate.deflate(body[:], strategy=@deflate.Strategy::Greedy))
+}</code></pre>
+        <div class="code-head">output<span></span></div>
+<pre class="out">greedy   -> 87 bytes, back to 9000
+long     -> 84 bytes, back to 9000</pre>
+        <p style="margin:14px 0 0;color:var(--ink-faint);font-size:13px">
+          The greedy walk is always among the candidates <code>LongMatch</code>
+          measures, so on a body of noise or of one repeated sentence, where there
+          is nothing to choose between, it writes exactly what greedy does and no
+          more — on this body the longer match saves three bytes, on the one in the
+          table below it saves 2.8%, and it never writes more. The parse is paid at
+          write time, which is why it is opt-in and why the default keeps its bytes.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
 

@@ -5,11 +5,15 @@ interface its own specification argues for — and no dependency beyond `moonbas
 and `mooncrypt` (the checksums, and the AES primitives behind ZIP's encryption).
 
 ```moonbit
+let body = @utf8.encode("the quick brown fox jumps over the lazy dog. ")
 let small = @gzip.gzip(body[:])
 let back = @gzip.gunzip(small[:])     // raises if the checksum disagrees
+assert_eq(back, body)
 
 let archive = @zip.zip([@zip.Entry::new("readme.txt", body)][:])
 let members = @zip.unzip(archive[:])
+assert_eq(members[0].name, "readme.txt")
+assert_eq(members[0].data, body)
 ```
 
 | Package | What | Specification |
@@ -48,6 +52,7 @@ implemented or it is refused by name.
 Every bound the encoder and the decoder have is an argument, and every default is
 the one the mainstream uses.
 
+<!-- nocheck -->
 ```moonbit
 @deflate.deflate(body[:])                    // level 6, a 32 KiB window
 @deflate.deflate(body[:], level=9)           // search hardest
@@ -76,11 +81,61 @@ the one the mainstream uses.
 the search depth this library used before the level existed, so output written by
 0.1.0 is still exactly reproducible — a test asserts it.
 
+## The long-match strategy
+
+The writer can parse a block two ways, and the choice is a parameter, `strategy`.
+
+```moonbit
+let text : Array[Byte] = []
+for _ in 0..<3000 {
+  for b in "the quick brown fox jumps over the lazy dog. " {
+    text.push((b.to_int() % 256).to_byte())
+  }
+}
+let body = Bytes::from_array(text)
+let greedy = @deflate.deflate(body[:])
+let long = @deflate.deflate(body[:], strategy=@deflate.Strategy::LongMatch)
+assert_eq(@deflate.deflate(body[:]), @deflate.deflate(body[:], strategy=@deflate.Strategy::Greedy))
+assert_eq(@deflate.inflate(long[:]), body)
+assert_true(long.length() <= greedy.length())
+```
+
+`Greedy` is the default and the parse the bytes have always been: it takes the
+longest match at the position the walk lands on and jumps to where it ends. A
+caller who omits the strategy gets exactly that, and a test asserts the default
+and the named `Greedy` are the same stream, so the output is byte for byte what
+it has always been.
+
+`LongMatch` re-walks the block a few times, each round pricing a copy at what the
+block's own codes charge for it, and keeps the parse that comes out smallest. It
+pays for a longer match at a farther distance instead of taking the shorter one
+close by, and it considers copies the greedy walk cut off because a longer one
+came first. It searches harder and writes fewer bytes on a body that repeats at
+more than one period — a sentence followed by its neighbours, prose, source —
+and the greedy walk is always among the candidates it measures, so on a body of
+noise or of one repeated byte, where there is nothing to choose between, it
+writes exactly what greedy does and no more.
+
+The trade, measured release-build on a 120 KB body of prose:
+
+| | Bytes | Of the greedy | Write |
+|:--|--:|--:|--:|
+| `Greedy` | 20,037 | — | 15.4 MB/s |
+| `LongMatch` | 19,467 | 2.8% fewer | 0.66 MB/s |
+
+Read is unchanged, because the reader is the same and the two parses decode at
+the same rate; the parse is paid at write time, which is why it is opt-in and why
+the default keeps the bytes it has always had. On the 1.5 MB words-and-numbers
+body the throughput table is measured on, the two parses write the same size —
+the greedy walk already finds the best parse there — so the strategy is invisible
+on that body and earns its keep on the ones where the walk is not already right.
+
 ## Streaming
 
 A response body arrives in chunks. A file is read four kilobytes at a time.
 Neither has to be gathered first.
 
+<!-- nocheck -->
 ```moonbit
 // out
 let writer = @gzip.Writer::new(level=9)
@@ -129,6 +184,7 @@ whole archive's.
 
 For an archive on disk, `un7z_from` takes a source instead of a block of bytes:
 
+<!-- nocheck -->
 ```moonbit
 let members = @sevenz.un7z_from(archive_file)   // anything implementing RandomAccess
 ```
@@ -146,6 +202,7 @@ A message boundary is the other unit a connection has. `deflate`'s writer can en
 message without ending the stream — `flush` writes `Z_SYNC_FLUSH`, the empty stored
 block every streaming compressor recognises — and the reader stops exactly there:
 
+<!-- nocheck -->
 ```moonbit
 let writer = @deflate.Writer::new(level=6)
 for message in messages {
@@ -178,6 +235,7 @@ boundaries that break a naive decoder are never the round ones.
 
 `gzip` compresses one thing; `zip` and `tar` hold many.
 
+<!-- nocheck -->
 ```moonbit
 let archive = @zip.zip([
   @zip.Entry::new("hello.txt", b"hello"),
@@ -195,6 +253,7 @@ archive naming every member, so `names` reads that and stops. This is what
 
 `zip` writes and reads the variants a real archive carries:
 
+<!-- nocheck -->
 ```moonbit
 @zip.zip(entries[:], zip64=true)          // sixty-four-bit sizes and offsets
 @zip.zip(entries[:], descriptor=true)     // sizes after each member, not before
@@ -214,6 +273,7 @@ per file, the bytes, and two empty blocks at the end. A `.tar.gz` compresses the
 whole archive rather than each member, which is why it beats the same files
 compressed one at a time.
 
+<!-- nocheck -->
 ```moonbit
 @tar.tar([@tar.Entry::new("a.txt", body), @tar.Entry::directory("empty")][:])
 @tar.targz(files[:])        // and untargz
@@ -261,6 +321,7 @@ at fixed boundaries — the central directory is still the last thing in the str
 it. `volume_names` gives the names the convention expects; the pieces are ordinary
 bytes, because this package never touches a file system.
 
+<!-- nocheck -->
 ```moonbit
 let parts = @zip.zip_split(entries[:], 65536)  // volumes of at most 64 KiB
 @zip.volume_names("archive", parts.length())   // ["archive.z01", ..., "archive.zip"]
@@ -276,6 +337,7 @@ where the directory begins, which is what an `unzip` that reads disk by disk
 expects. `unzip_spanned` joins the disks, translates every disk-relative offset
 back to one coordinate space, and reads the result.
 
+<!-- nocheck -->
 ```moonbit
 let disks = @zip.zip_spanned(entries[:], 65536)  // true spanned disks
 @zip.unzip_spanned(disks)                        // disk numbers translated back
@@ -299,6 +361,7 @@ no multi-part support, so it is not the tool for this one.
 **A method this package does not implement** — bzip2 is 12, LZMA is 14 — is a
 `Codec` away rather than an edit here:
 
+<!-- nocheck -->
 ```moonbit
 @zip.unzip(archive[:], codecs=mine[:])
 ```
@@ -309,6 +372,7 @@ A range coder with a binary-probability model: no bit stream to align, one table
 of probabilities updated per decision, and a matched-literal trick that makes the
 byte after a match much cheaper than a byte after a literal.
 
+<!-- nocheck -->
 ```moonbit
 @lzma.lzma(body[:])            // the .lzma alone container
 @lzma.unlzma(packed[:])        // both a stated length and an end marker
@@ -338,6 +402,7 @@ whole idea, and the three stages after it exist to make the result encodable:
 move-to-front turns "the same byte as last time at this context" into a zero, a
 run of zeros becomes two symbols, and Huffman codes what is left.
 
+<!-- nocheck -->
 ```moonbit
 @bzip2.bzip2(body[:], level=9)      // 900k blocks
 @bzip2.bunzip2(packed[:])           // block CRCs and the combined one checked
@@ -365,6 +430,7 @@ A folder is one compressed stream, and it can hold several files at once, which 
 what "solid" means: the compressor saw all of them together, so a phrase repeated
 across two files is paid for once and neither can be read without the other.
 
+<!-- nocheck -->
 ```moonbit
 @sevenz.sevenz(members[:], how=@sevenz.Method::Lzma2, solid=true)
 @sevenz.un7z(archive[:])       // folder, substream and signature checksums verified
@@ -374,6 +440,7 @@ across two files is paid for once and neither can be read without the other.
 Both of those hold the whole thing: every member, every folder's compressed form,
 and the directory, before anything comes back. The streaming pair does not.
 
+<!-- nocheck -->
 ```moonbit
 let w = @sevenz.Writer::new(level=6)
 let mut body : Array[Byte] = []
@@ -392,6 +459,7 @@ a number nobody has until the last folder is written — so those bytes are prod
 last and placed first. `signature` before `finish` aborts rather than returning
 something plausible.
 
+<!-- nocheck -->
 ```moonbit
 let r = @sevenz.Reader::new(limit=1 << 26)
 for piece in pieces {
@@ -439,6 +507,7 @@ whose transitions are probability-weighted — which is what lets a symbol cost 
 fractional number of bits; Huffman codes the literals and FSE codes everything
 else.
 
+<!-- nocheck -->
 ```moonbit
 @zstd.zstd(body[:], level=3)
 @zstd.unzstd(packed[:])
@@ -484,6 +553,7 @@ chunk of the format:
   transforms over them, reachable by a distance larger than the window. A word the
   encoder recognises costs a distance code instead of its letters.
 
+<!-- nocheck -->
 ```moonbit
 @brotli.brotli(body[:], window=22)   // window is 10 to 24
 @brotli.brotli(body[:], quality=11)  // search hardest; quality is 0 to 11

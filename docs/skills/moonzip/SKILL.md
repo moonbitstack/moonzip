@@ -26,17 +26,23 @@ import {
 ## Compress and decompress one buffer
 
 `gzip`, `zlib` and `deflate` are the same codec in three containers; pick the one
-the other end expects.
+the other end expects. The writer takes an optional `strategy`: `Greedy` (the
+default, byte for byte what it has always written) or `LongMatch`, a harder parse
+that writes fewer bytes on a body that repeats at more than one period.
 
 ```moonbit
+let body = @utf8.encode("the quick brown fox jumps over the lazy dog. ")
 let packed = @gzip.gzip(body[:])                  // RFC 1952, with a CRC-32
 let back = @gzip.gunzip(packed[:])                // raises if the checksum disagrees
+assert_eq(back, body)
 let raw = @deflate.deflate(body[:], level=9)      // RFC 1951, no container
+assert_eq(@deflate.inflate(raw[:]), body)
 ```
 
 Reading untrusted input: pass `limit` and the reader stops before it allocates a
 gigabyte.
 
+<!-- nocheck -->
 ```moonbit
 let back = @deflate.inflate(raw[:], limit=4 << 20) catch {
   @moonzip.TooBig(_) => bail_out()
@@ -49,6 +55,7 @@ let back = @deflate.inflate(raw[:], limit=4 << 20) catch {
 `Writer::push` takes whatever has arrived and hands back whatever is ready;
 `finish` writes the last block and the trailer. The reader is the mirror.
 
+<!-- nocheck -->
 ```moonbit
 let writer = @gzip.Writer::new(level=6)
 for part in parts {
@@ -66,6 +73,7 @@ For message-oriented protocols, `@deflate.Writer::flush` ends a message with
 `Z_SYNC_FLUSH` and keeps the window, and `reset` throws the window away — the two
 settings a WebSocket connection negotiates as context takeover.
 
+<!-- nocheck -->
 ```moonbit
 let writer = @deflate.Writer::new(level=6)
 for b in writer.push(message[:]) {
@@ -83,6 +91,7 @@ let text = reader.flush(message_bytes)            // one message, window kept
 `zip` and `tar` hold many files; `sevenz` holds many files with a directory
 written after them.
 
+<!-- nocheck -->
 ```moonbit
 let archive = @zip.zip([@zip.Entry::new("readme.txt", body)][:])
 let members = @zip.unzip(archive[:])
@@ -92,6 +101,7 @@ let names = @zip.names(archive[:])                // the directory, nothing else
 A 7z archive is read through a random-access source, so a file never has to fit
 in memory: the directory is read first, then one folder at a time.
 
+<!-- nocheck -->
 ```moonbit
 let members = @sevenz.un7z_from(file)             // `file` implements RandomAccess
 ```
