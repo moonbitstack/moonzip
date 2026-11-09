@@ -1,6 +1,6 @@
 name = "moonbitstack/moonzip"
 
-version = "0.3.7"
+version = "0.3.8"
 
 readme = "README.md"
 
@@ -39,8 +39,8 @@ keywords = [
 description = "Compression and archives for MoonBit, one format per package."
 
 import {
-  "moonbitstack/moonbase@0.4.3",
-  "moonbitstack/mooncrypt@0.4.12",
+  "moonbitstack/moonbase@0.4.4",
+  "moonbitstack/mooncrypt@0.4.13",
 }
 
 source = "src"
