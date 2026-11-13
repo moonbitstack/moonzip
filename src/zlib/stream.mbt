@@ -21,10 +21,11 @@ pub fn Writer::new(
   level~ : Int32 = 6,
   window~ : Int32 = 32768,
   chain? : Int32,
+  limit? : Int32,
   blocks~ : @deflate.Blocks = Auto,
 ) -> Writer {
   {
-    inner: @deflate.Writer::new(level~, window~, chain?, blocks~),
+    inner: @deflate.Writer::new(level~, window~, chain?, blocks~, limit?),
     sum: @moonzip.Adler::new(),
     header: header_bytes(level, window),
     closed: false,
@@ -34,7 +35,10 @@ pub fn Writer::new(
 ///|
 /// Compress a chunk and take what it produced, the header included the first
 /// time anything comes out.
-pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
+pub fn Writer::push(
+  self : Writer,
+  data : BytesView,
+) -> Bytes raise @moonzip.Refused {
   if self.closed {
     abort("zlib: the writer is finished")
   }
@@ -45,7 +49,7 @@ pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
 
 ///|
 /// Finish the stream: what the compressor still holds, then the checksum.
-pub fn Writer::finish(self : Writer) -> Bytes {
+pub fn Writer::finish(self : Writer) -> Bytes raise @moonzip.Refused {
   if self.closed {
     return b""
   }

@@ -37,6 +37,7 @@ pub fn Writer::new(
   level~ : Int32 = 6,
   window~ : Int32 = 32768,
   chain? : Int32,
+  limit? : Int32,
   mtime~ : UInt32 = 0,
   name? : String,
   comment? : String,
@@ -45,7 +46,14 @@ pub fn Writer::new(
   strategy~ : @deflate.Strategy = @deflate.Strategy::Greedy,
 ) -> Writer {
   {
-    inner: @deflate.Writer::new(level~, window~, chain?, blocks~, strategy~),
+    inner: @deflate.Writer::new(
+      level~,
+      window~,
+      chain?,
+      blocks~,
+      strategy~,
+      limit?,
+    ),
     sum: @moonzip.Crc::new(),
     size: 0,
     header: header_bytes(level, mtime, name?, comment?, os),
@@ -60,7 +68,10 @@ pub fn Writer::new(
 /// Nothing may come back for a while on a small body: the compressor holds
 /// input until it has a block's worth, which is what makes the output small.
 /// All of it comes back by [`finish`](#Writer::finish).
-pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
+pub fn Writer::push(
+  self : Writer,
+  data : BytesView,
+) -> Bytes raise @moonzip.Refused {
   if self.closed {
     abort("gzip: the writer is finished")
   }
@@ -73,7 +84,7 @@ pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
 ///|
 /// Finish the stream: whatever the compressor still holds, then the trailer.
 /// Nothing may be pushed afterwards.
-pub fn Writer::finish(self : Writer) -> Bytes {
+pub fn Writer::finish(self : Writer) -> Bytes raise @moonzip.Refused {
   if self.closed {
     return b""
   }

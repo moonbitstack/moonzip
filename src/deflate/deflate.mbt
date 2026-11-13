@@ -91,9 +91,7 @@ pub fn deflate(
   guard level >= 0 && level <= 9 else {
     abort("deflate: level \{level} is not between 0 and 9")
   }
-  guard window >= 256 && window <= 32768 else {
-    abort("deflate: a \{window}-byte window is outside what DEFLATE allows")
-  }
+  window_bits_of(window)
   if level == 0 || blocks is Stored {
     return stored_blocks(data)
   }
@@ -220,6 +218,19 @@ priv struct Finder {
 }
 
 ///|
+/// A DEFLATE window is a power of two between 2^8 and 2^15 bytes (RFC 1951
+/// §3.2.5). The WebSocket `permessage-deflate` extension negotiates it as a bit
+/// count in that range, and a reader told one size must keep no other.
+fn window_bits_of(window : Int32) -> Unit {
+  guard window >= 256 && window <= 32768 else {
+    abort("deflate: a \{window}-byte window is outside what DEFLATE allows")
+  }
+  guard (window & (window - 1)) == 0 else {
+    abort("deflate: a \{window}-byte window is not a power of two")
+  }
+}
+
+///|
 /// The (good, nice, chain) triple zlib's level table gives: the length at which
 /// the search starts cutting its depth, the length at which it stops, and the
 /// depth.
@@ -337,6 +348,12 @@ fn hash3(buf : Array[Byte], i : Int32) -> Int32 {
 /// The stream is not finished until `finish` is called: that is what writes the
 /// last block, and a caller who stops pushing without it has an unterminated
 /// stream.
+///
+/// `window` bounds how far a back-reference may reach; for a stream the other end
+/// will read with a smaller window, set it to match. `limit` bounds how much
+/// output the writer may produce — a message that would take the stream past it is
+/// refused rather than expanded, so a caller that pushes a large body and a tight
+/// budget stops at the block that crosses it.
 struct Writer {
   bw : BitWriter
   /// The retained window followed by the input not yet emitted.
@@ -347,6 +364,11 @@ struct Writer {
   finder : Finder
   blocks : Blocks
   strategy : Strategy
+  /// The most output the caller will accept, or -1 for no bound. A message that
+  /// would take the stream past it is refused rather than expanded first.
+  limit : Int32
+  /// Output handed back so far, against which the limit is measured.
+  mut produced : Int32
   mut closed : Bool
 }
 
@@ -357,13 +379,12 @@ pub fn Writer::new(
   chain? : Int32,
   blocks~ : Blocks = Auto,
   strategy~ : Strategy = Greedy,
+  limit? : Int32,
 ) -> Writer {
   guard level >= 0 && level <= 9 else {
     abort("deflate: level \{level} is not between 0 and 9")
   }
-  guard window >= 256 && window <= 32768 else {
-    abort("deflate: a \{window}-byte window is outside what DEFLATE allows")
-  }
+  window_bits_of(window)
   let (good, nice, standard) = settings_for(level)
   let finder = {
     depth: match chain {
@@ -387,17 +408,31 @@ pub fn Writer::new(
       blocks
     },
     strategy,
+    limit: match limit {
+      Some(n) => n
+      None => -1
+    },
+    produced: 0,
     closed: false,
   }
 }
 
 ///|
 /// Feed a chunk, take the compressed bytes it produced.
-pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
+///
+/// The bytes come back a block at a time, and each is measured against the
+/// budget before the next block is even parsed — so a large body and a tight
+/// `limit` stop at the block that crosses it, without the rest of the input being
+/// expanded first. Over the budget raises `TooBig`.
+pub fn Writer::push(
+  self : Writer,
+  data : BytesView,
+) -> Bytes raise @moonzip.Refused {
   guard !self.closed else { abort("deflate: the writer is finished") }
   for b in data {
     self.buf.push(b)
   }
+  let out : Array[Byte] = []
   while self.buf.length() - self.from >= chunk {
     emit_block(
       self.bw,
@@ -413,8 +448,16 @@ pub fn Writer::push(self : Writer, data : BytesView) -> Bytes {
     )
     self.from += chunk
     self.retain()
+    let made = self.bw.take()
+    self.produced += made.length()
+    if self.limit >= 0 && self.produced > self.limit {
+      raise @moonzip.TooBig(limit=self.limit)
+    }
+    for b in made {
+      out.push(b)
+    }
   }
-  self.bw.take()
+  Bytes::from_array(out)
 }
 
 ///|
@@ -434,7 +477,10 @@ fn Writer::retain(self : Writer) -> Unit {
 ///|
 /// Finish the stream: the last block, and the last bytes of it. Nothing may be
 /// pushed afterwards.
-pub fn Writer::finish(self : Writer) -> Bytes {
+///
+/// The bytes handed back are measured against the budget; over it raises
+/// `TooBig`.
+pub fn Writer::finish(self : Writer) -> Bytes raise @moonzip.Refused {
   if !self.closed {
     self.closed = true
     emit_block(
@@ -450,7 +496,12 @@ pub fn Writer::finish(self : Writer) -> Bytes {
       true,
     )
   }
-  self.bw.finish()
+  let made = self.bw.finish()
+  self.produced += made.length()
+  if self.limit >= 0 && self.produced > self.limit {
+    raise @moonzip.TooBig(limit=self.limit)
+  }
+  made
 }
 
 ///|
@@ -464,7 +515,10 @@ pub fn Writer::finish(self : Writer) -> Bytes {
 ///
 /// A sender that wants the other convention — no context carried between
 /// messages — calls `reset` after this.
-pub fn Writer::flush(self : Writer) -> Bytes {
+///
+/// The bytes handed back are measured against the budget; over it raises
+/// `TooBig`.
+pub fn Writer::flush(self : Writer) -> Bytes raise @moonzip.Refused {
   guard !self.closed else { abort("deflate: the writer is finished") }
   if self.buf.length() > self.from {
     // Everything that has arrived becomes a block of its own, because a flush is
@@ -486,7 +540,12 @@ pub fn Writer::flush(self : Writer) -> Bytes {
     self.retain()
   }
   self.bw.sync()
-  self.bw.take()
+  let made = self.bw.take()
+  self.produced += made.length()
+  if self.limit >= 0 && self.produced > self.limit {
+    raise @moonzip.TooBig(limit=self.limit)
+  }
+  made
 }
 
 ///|
@@ -506,11 +565,6 @@ pub fn Writer::reset(self : Writer) -> Unit {
 ///|
 /// How much input a streaming writer holds before emitting a block.
 let chunk : Int32 = 32768
-
-///|
-/// How far a back-reference may reach, and so how much output a streaming
-/// reader keeps after handing it over (RFC 1951 §3.2.5).
-let window : Int32 = 32768
 
 // ------------------------------------------------------------ the block writer
 
@@ -1396,6 +1450,11 @@ struct Reader {
   /// Set when that flush has just been consumed.
   mut synced : Bool
   limit : Int32
+  /// The window the stream was compressed with, in bytes — a power of two from
+  /// 256 (2^8) to 32 KiB (2^15), the range the WebSocket `permessage-deflate`
+  /// extension negotiates. That much output is kept between calls, and a
+  /// back-reference past it is refused rather than read from stale output.
+  window : Int32
   mut at_end : Bool
   /// Output already handed back, kept as far as a back-reference reaches.
   mut history : Array[Byte]
@@ -1407,7 +1466,15 @@ struct Reader {
 }
 
 ///|
-pub fn Reader::new(limit? : Int32) -> Reader {
+/// Decompress a raw DEFLATE stream a piece at a time.
+///
+/// `window` is the size the stream was compressed with, a power of two from 256
+/// bytes (2^8) to 32 KiB (2^15) — the range the WebSocket `permessage-deflate`
+/// extension negotiates. The reader keeps that much of the output between calls,
+/// and a back-reference past it is refused rather than guessed at. `limit` bounds
+/// the output.
+pub fn Reader::new(limit? : Int32, window~ : Int32 = 32768) -> Reader {
+  window_bits_of(window)
   {
     br: BitReader::new(),
     stage: Header,
@@ -1430,6 +1497,7 @@ pub fn Reader::new(limit? : Int32) -> Reader {
       Some(n) => n
       None => -1
     },
+    window,
     at_end: false,
     history: [],
     out: FixedArray::make(4096, b'\x00'),
@@ -1550,7 +1618,7 @@ fn Reader::take(self : Reader) -> Bytes {
   // doubled the cost of a decode and bought nothing — the bytes before the
   // window are bytes no back-reference can name.
   let total = self.history.length() + made.length()
-  let want = if total > window { window } else { total }
+  let want = if total > self.window { self.window } else { total }
   let start = total - want
   let held = self.history.length()
   let kept : Array[Byte] = Array::make(want, b'\x00')
@@ -1828,6 +1896,7 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
   let buf = br.buf
   let n = buf.length()
   let limit = self.limit
+  let wlimit = self.window
   let kept = self.history.length()
   let mut pos = br.pos
   let mut acc = br.acc
@@ -2004,6 +2073,10 @@ fn Reader::codes(self : Reader) -> Unit raise @moonzip.Refused {
       // One measurement of how much has been produced, used for all three
       // questions the copy asks: is the distance in range, where does the copy
       // start, and would it run past the limit.
+      if back > wlimit {
+        br.pos = pos
+        raise @moonzip.Distance(at=pos)
+      }
       if back > have {
         br.pos = pos
         raise @moonzip.Distance(at=pos)

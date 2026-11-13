@@ -62,7 +62,7 @@ fn name_of(blocks : @deflate.Blocks) -> String {
 
 ///|
 /// A gzip stream written in chunks of `step` bytes.
-fn stream_gzip(body : Bytes, step : Int32) -> Bytes {
+fn stream_gzip(body : Bytes, step : Int32) -> Bytes raise @moonzip.Refused {
   let writer = @gzip.Writer::new()
   let out : Array[Byte] = []
   let mut at = 0
@@ -81,7 +81,7 @@ fn stream_gzip(body : Bytes, step : Int32) -> Bytes {
 
 ///|
 /// A zlib stream written in chunks of `step` bytes.
-fn stream_zlib(body : Bytes, step : Int32) -> Bytes {
+fn stream_zlib(body : Bytes, step : Int32) -> Bytes raise @moonzip.Refused {
   let writer = @zlib.Writer::new()
   let out : Array[Byte] = []
   let mut at = 0
@@ -106,7 +106,7 @@ fn stream_zlib(body : Bytes, step : Int32) -> Bytes {
 /// `permessage-deflate` calls context takeover; without it, each message is a
 /// stream of its own. The two produce different bytes from the same body, and both
 /// have to read back somewhere else, which is what the checker asks.
-fn messages(body : Bytes, keep : Bool) -> Array[Bytes] {
+fn messages(body : Bytes, keep : Bool) -> Array[Bytes] raise @moonzip.Refused {
   let writer = @deflate.Writer::new(level=6)
   let step = if body.length() / 3 > 0 { body.length() / 3 + 1 } else { 1 }
   let out : Array[Bytes] = []
@@ -312,7 +312,7 @@ fn stream_sevenz(kind : Int32) -> Bytes {
 }
 
 ///|
-fn main {
+fn main raise @moonzip.Refused {
   for kind in 0..<7 {
     let body = sample(kind)
     for level in [0, 1, 6, 7, 9] {

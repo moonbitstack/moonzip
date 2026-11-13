@@ -22,9 +22,9 @@ pub fn Reader::new(checksum? : Bool, length? : Bool, header_crc? : Bool, limit? 
 pub fn Reader::push(Self, BytesView) -> Bytes raise @moonzip.Refused
 
 type Writer
-pub fn Writer::finish(Self) -> Bytes
-pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, mtime? : UInt32, name? : String, comment? : String, os? : Int32, blocks? : @deflate.Blocks, strategy? : @deflate.Strategy) -> Self
-pub fn Writer::push(Self, BytesView) -> Bytes
+pub fn Writer::finish(Self) -> Bytes raise @moonzip.Refused
+pub fn Writer::new(level? : Int32, window? : Int32, chain? : Int32, limit? : Int32, mtime? : UInt32, name? : String, comment? : String, os? : Int32, blocks? : @deflate.Blocks, strategy? : @deflate.Strategy) -> Self
+pub fn Writer::push(Self, BytesView) -> Bytes raise @moonzip.Refused
 
 // Type aliases
 

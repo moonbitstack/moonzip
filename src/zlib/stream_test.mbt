@@ -59,7 +59,11 @@ fn read_in(data : Bytes, step : Int32) -> Bytes raise @moonzip.Refused {
 
 ///|
 /// And one writer, fed in the same chunks.
-fn write_in(data : Bytes, step : Int32, level : Int32) -> Bytes {
+fn write_in(
+  data : Bytes,
+  step : Int32,
+  level : Int32,
+) -> Bytes raise @moonzip.Refused {
   let writer = @zlib.Writer::new(level~)
   let out : Array[Byte] = []
   let mut at = 0

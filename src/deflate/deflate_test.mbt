@@ -52,6 +52,38 @@ fn refused(action : () -> Unit raise) -> Bool {
 }
 
 ///|
+/// Bytes with no structure, so they stay about their own size when compressed.
+///
+/// A stream of them is what makes a tight writer budget overflow, and what keeps
+/// the match finder from finding a short back-reference where a long one is wanted.
+fn noise(cap : Int32) -> Bytes {
+  let out : Array[Byte] = []
+  let mut state : UInt32 = 0x12345678U
+  while out.length() < cap {
+    state = state * 1103515245U + 12345U
+    out.push((state >> 16).to_byte())
+  }
+  Bytes::from_array(out)
+}
+
+///|
+/// Two identical halves, so the second is a back-reference into the first.
+///
+/// The reference the writer must emit reaches across the whole first half, which
+/// is what a reader told a smaller window has to refuse rather than honour.
+fn paired(cap : Int32) -> Bytes {
+  let a = noise(cap)
+  let out : Array[Byte] = []
+  for b in a {
+    out.push(b)
+  }
+  for b in a {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
 /// Every block form decodes to the bytes it was given, over every body shape.
 ///
 /// The four forms are not variations on a theme — a stored block has no Huffman
@@ -512,4 +544,116 @@ test "the streaming writer round-trips a body with the long-match strategy" {
     out.push(b)
   }
   assert_eq(@deflate.inflate(Bytes::from_array(out)[:]), body)
+}
+
+///|
+/// Window bits eight through fifteen are the sizes the WebSocket
+/// `permessage-deflate` extension may name, and each one round-trips every body
+/// shape.
+///
+/// A smaller window is a tighter cap on how far a back-reference may reach, not a
+/// different format, so the same decoder that takes 32 KiB takes 256 bytes — and
+/// the writer simply stops looking past it.
+test "window bits eight through fifteen round-trip every body" {
+  for window in [256, 512, 1024, 4096, 32768] {
+    for kind in 0..<7 {
+      let body = body_of(kind)
+      let writer = @deflate.Writer::new(level=9, window~)
+      let packed : Array[Byte] = []
+      for b in writer.push(body[:]) {
+        packed.push(b)
+      }
+      for b in writer.finish() {
+        packed.push(b)
+      }
+      let reader = @deflate.Reader::new(window~)
+      let out : Array[Byte] = []
+      for b in reader.push(Bytes::from_array(packed)[:]) {
+        out.push(b)
+      }
+      for b in reader.finish() {
+        out.push(b)
+      }
+      assert_eq(Bytes::from_array(out), body)
+    }
+  }
+}
+
+///|
+/// A stream compressed with one window is not read by a reader told a smaller
+/// one: a back-reference that reaches past the smaller window is refused, not
+/// guessed at from output the reader was not meant to keep.
+test "a larger-window stream is refused by a smaller-window reader" {
+  let body = paired(1000)
+  let writer = @deflate.Writer::new(level=9, window=32768)
+  let packed : Array[Byte] = []
+  for b in writer.push(body[:]) {
+    packed.push(b)
+  }
+  for b in writer.finish() {
+    packed.push(b)
+  }
+  // The same stream, read with the window it was compressed against: whole.
+  let wide = @deflate.Reader::new(window=32768)
+  let out : Array[Byte] = []
+  for b in wide.push(Bytes::from_array(packed)[:]) {
+    out.push(b)
+  }
+  for b in wide.finish() {
+    out.push(b)
+  }
+  assert_eq(Bytes::from_array(out), body)
+  // Read with a window too small to hold the back-reference: refused. The
+  // refusal is raised while the block is decoded, so the call that reads it to
+  // the end is the one that must observe it.
+  let narrow = @deflate.Reader::new(window=256)
+  let mut refused_narrow = false
+  try {
+    let trash : Array[Byte] = []
+    for b in narrow.push(Bytes::from_array(packed)[:]) {
+      trash.push(b)
+    }
+    for b in narrow.finish() {
+      trash.push(b)
+    }
+  } catch {
+    _ => refused_narrow = true
+  }
+  assert_true(refused_narrow)
+}
+
+///|
+/// The writer's budget bounds the compressed output it hands back, and the block
+/// that would cross it is refused without the rest of the input being expanded
+/// first.
+test "the writer refuses output past the budget" {
+  let body = noise(50000)
+  // A budget far below what one block of noisy input compresses to is exceeded
+  // on the first push.
+  let over = @deflate.Writer::new(level=9, limit=100)
+  assert_true(refused(fn() raise { over.push(body[:]) |> ignore }))
+  // A budget that fits the whole stream lets it through unchanged.
+  let under = @deflate.Writer::new(level=9, limit=1_000_000)
+  let packed : Array[Byte] = []
+  for b in under.push(body[:]) {
+    packed.push(b)
+  }
+  for b in under.finish() {
+    packed.push(b)
+  }
+  assert_eq(@deflate.inflate(Bytes::from_array(packed)[:]), body)
+}
+
+///|
+/// A window outside the 256–32768 range DEFLATE allows is a programming error,
+/// caught at the call that sets it rather than deep in the encoder.
+test "panic a window outside what DEFLATE allows is a mistake in the program" {
+  @deflate.deflate(b"hello"[:], window=100) |> ignore
+}
+
+///|
+/// The window must be a power of two, because the back-reference distance is
+/// encoded as a fixed number of bits; a non-power-of-two is refused up front.
+test "panic a window that is not a power of two is a mistake in the program" {
+  @deflate.deflate(b"hello"[:], window=3000) |> ignore
 }
