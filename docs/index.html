@@ -368,8 +368,8 @@ footer a:hover { color: var(--ink); border-color: var(--ink); }
 
     <div class="pair">
       <div class="pair__label">a body that arrives in pieces</div>
-<pre><span class="tok-c">// Nothing is held whole: the only state between calls is the 32 KiB window
-// the compressor needs and four bytes of running checksum.</span>
+<pre><span class="tok-c">// Nothing is held whole: the only state between calls is the window
+// a back-reference can reach (256 bytes to 32 KiB) and a running checksum.</span>
 <span class="tok-k">let</span> writer = @gzip.Writer::new(level=<span class="tok-t">9</span>)
 <span class="tok-k">for</span> part <span class="tok-k">in</span> parts {
   <span class="tok-k">for</span> b <span class="tok-k">in</span> writer.push(part) { out.push(b) }
@@ -513,6 +513,21 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
     </div>
 
     <div class="pair">
+      <div class="pair__label">a message boundary, without ending the stream</div>
+      <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
+        <code>flush</code> ends a message with a synchronising flush — the empty
+        stored block, <code>00 00 FF FF</code> — and the reader stops exactly
+        there, keeping its window so the next message may match against the last
+        one: the setting a WebSocket connection calls context takeover.
+        <code>reset</code> on either side drops the window, and the next message
+        stands on its own. The window is 256 bytes to 32 KiB — eight to fifteen
+        bits, the permessage-deflate range — and a writer given a
+        <code>limit</code> refuses the block that would cross it with
+        <code>TooBig</code>, rather than expanding the whole input first.
+      </p>
+    </div>
+
+    <div class="pair">
       <div class="pair__label">what the tests do</div>
       <p style="margin:0;color:var(--ink-soft);font-size:14.5px">
         Every streaming test feeds the same body in one, two, three, five, seven,
@@ -579,9 +594,9 @@ r.finish()      <span class="tok-c">→ the rest, and the trailer is checked her
         <tr><td class="mono">root</td><td class="mono">mask_crc32c</td><td class="mono">(UInt32) → UInt32</td><td>The mask Snappy puts on a CRC before a frame carries it.</td></tr>
         <tr><td class="mono">deflate</td><td class="mono">deflate</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, blocks~=Auto, strategy?) → Bytes</td><td><code>Blocks</code> is <code>Auto</code>, <code>Fixed</code>, <code>Dynamic</code> or <code>Stored</code>; <code>strategy</code> is <code>Greedy</code> (the default, byte for byte what it has always written) or <code>LongMatch</code>, a harder parse that writes fewer bytes on a body that repeats at more than one period.</td></tr>
         <tr><td class="mono">deflate</td><td class="mono">inflate</td><td class="mono">(BytesView, limit?) → Bytes raise</td><td><code>Refused</code> carries the byte offset it gave up at.</td></tr>
-        <tr><td class="mono">deflate</td><td class="mono">Writer · Reader</td><td class="mono">new(level~, window~, chain?, blocks~, strategy~) · push → finish</td><td>The streaming pair the containers are built on; the writer takes the same <code>strategy</code> as the one-shot.</td></tr>
+        <tr><td class="mono">deflate</td><td class="mono">Writer · Reader</td><td class="mono">new(level~=6, window~=32768, chain?, blocks~=Auto, strategy~=Greedy, limit?) · new(window~=32768, limit?) · push → finish · flush · reset</td><td>The streaming pair the containers are built on. <code>window</code> is 256 to 32768 bytes; <code>flush</code> ends a message with <code>Z_SYNC_FLUSH</code> and keeps the window, <code>reset</code> drops it; a writer given <code>limit</code> refuses the block that would cross it with <code>TooBig</code>.</td></tr>
         <tr><td class="mono">gzip</td><td class="mono">gzip · gunzip</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, strategy?, mtime~=0, name?, comment?, os~=255) → Bytes</td><td>mtime is zero so the same input gives the same bytes; <code>strategy</code> reaches the DEFLATE writer inside.</td></tr>
-        <tr><td class="mono">gzip</td><td class="mono">Writer · Reader</td><td class="mono">new(level~, mtime~, name?, comment?, os~) · new(checksum~, length~, header_crc~, limit?)</td><td>Checks default on; a caller recovering a broken transfer turns them off.</td></tr>
+        <tr><td class="mono">gzip</td><td class="mono">Writer · Reader</td><td class="mono">new(level~=6, window~=32768, chain?, limit?, mtime~=0, name?, comment?, os~=255, blocks~=Auto, strategy~=Greedy) · new(checksum~=true, length~=true, header_crc~=true, limit?)</td><td>Checks default on; a caller recovering a broken transfer turns them off. <code>window</code> and <code>strategy</code> reach the DEFLATE writer inside; <code>limit</code> bounds the output.</td></tr>
         <tr><td class="mono">zlib</td><td class="mono">zlib · unzlib</td><td class="mono">(BytesView, level~=6, window~=32768, chain?, strategy?) → Bytes</td><td>The window goes in the header, so a reader learns it before it starts; <code>strategy</code> reaches the DEFLATE writer inside.</td></tr>
         <tr><td class="mono">zip</td><td class="mono">zip</td><td class="mono">(ArrayView[Entry], level~, codecs~, zip64~, descriptor~, password?) → Bytes</td><td>Raises nothing: a writer has no input to distrust.</td></tr>
         <tr><td class="mono">zip</td><td class="mono">unzip · names · entry</td><td class="mono">(BytesView, limit?, codecs~, password?) → Array[Entry]</td><td><code>names</code> reads the directory without expanding anything.</td></tr>
