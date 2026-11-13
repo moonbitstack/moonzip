@@ -502,7 +502,11 @@ gunzip    -> 184000 bytes, matches: true</pre>
       <code>00 00 FF FF</code> — and the reader stops exactly there, keeping its
       window so the next message may match against the last one. <code>reset</code>
       on either side drops the window, which is the other setting a WebSocket
-      connection negotiates for context takeover.
+      connection negotiates for context takeover. The window is a parameter both
+      ends agree on — eight to fifteen bits, 256 bytes to 32 KiB — and a writer may
+      also be given an output budget: <code>push</code> refuses the message that
+      would cross it, raising <code>TooBig</code>, rather than expanding the whole
+      input first.
     </p>
 
     <div class="pair">

@@ -68,10 +68,13 @@ for b in writer.finish() {
 }
 ```
 
-Between calls the writer holds one block and the 32 KiB window, never the body.
+Between calls the writer holds one block and the window — 256 bytes to 32 KiB,
+the eight to fifteen bits a permessage-deflate negotiation names — never the body.
 For message-oriented protocols, `@deflate.Writer::flush` ends a message with
 `Z_SYNC_FLUSH` and keeps the window, and `reset` throws the window away — the two
-settings a WebSocket connection negotiates as context takeover.
+settings a WebSocket connection negotiates as context takeover. The same `window`
+argument is passed to the reader, and a reader given a smaller one refuses the
+stream at the back-reference that reaches past it.
 
 <!-- nocheck -->
 ```moonbit
@@ -85,6 +88,11 @@ for b in writer.flush() {
 let reader = @deflate.Reader::new()
 let text = reader.flush(message_bytes)            // one message, window kept
 ```
+
+A streaming writer may also be given a budget: `Writer::new(limit=...)` makes
+`push` refuse the message that would take the output past it, raising `TooBig`,
+instead of expanding the whole input first. The reader's `limit` is the separate
+decompression-bomb bound.
 
 ## Read and write archives
 

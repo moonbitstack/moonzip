@@ -31,8 +31,12 @@ keywords = [
   "rfc1950",
   "rfc1951",
   "rfc1952",
+  "rfc7692",
   "rfc7932",
   "rfc8878",
+  "permessage-deflate",
+  "websocket",
+  "context-takeover",
   "moonbit",
 ]
 

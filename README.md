@@ -59,8 +59,13 @@ the one the mainstream uses.
 @deflate.deflate(body[:], level=0)           // store, do not compress
 @deflate.deflate(body[:], blocks=Fixed)      // pin the block type
 @deflate.deflate(body[:], chain=2048)        // set the search depth directly
+@deflate.deflate(body[:], window=4096)       // a 12-bit window, for a peer that keeps one
 
 @deflate.inflate(stream[:], limit=1 << 20)   // refuse to expand past a megabyte
+
+@deflate.Writer::new(level=9)                // stream it a piece at a time
+@deflate.Writer::new(level=9, window=4096)   // 12-bit window, matches the reader
+@deflate.Writer::new(level=9, limit=1 << 16) // refuse to emit past 64 KiB of output
 
 @gzip.gzip(body[:], name="report.csv", mtime=written_at)
 @gzip.gunzip(stream[:], checksum=false)      // read what a damaged stream holds
@@ -69,10 +74,10 @@ the one the mainstream uses.
 | Setting | Default | Why that one |
 |:--:|:--:|:--|
 | `level` | 6 | The usual default; each level maps to the search depths the format's reference tables give it, so a level means the same here as anywhere |
-| `window` | 32768 | The most DEFLATE allows, and the only size a reader can be assumed to handle |
+| `window` | 32768 | 256–32768, a power of two (eight to fifteen bits). A writer may use any of them; a reader must use one at least as large, or it refuses the stream at the back-reference that reaches past it |
 | `chain` | from `level` | For a caller who would rather set the depth than pick a level |
 | `blocks` | `Auto` | The writer measures a dynamic candidate, a fixed one and a stored one per block and keeps the smallest |
-| `limit` | unbounded | What every library does. A reader handling input from elsewhere should set it: a compressed stream says nothing about how far it expands |
+| `limit` | unbounded | The reader's decompression-bomb bound, and the streaming writer's output budget. A reader handling input from elsewhere should set it: a compressed stream says nothing about how far it expands. A writer given one refuses a message that would take the stream past it, rather than expanding the whole input first |
 | `mtime` | 0 | So the same input gives the same bytes. A compressor that stamped the clock would make a build unreproducible |
 | `checksum`, `length`, `header_crc` | on | A container that carries a checksum and does not look at it is not a container. Off is for reading what a damaged stream still holds |
 
@@ -162,7 +167,7 @@ it.
 
 | Format | Unit held | Bound |
 |:--|:--|--:|
-| `deflate`, `gzip`, `zlib` | one block | 32 KiB |
+| `deflate`, `gzip`, `zlib` | one block | 256 B – 32 KiB (window) |
 | `lz4` | one block | 64 KiB |
 | `snappy` | one chunk | 64 KiB |
 | `zstd` | one block | 64 KiB |
@@ -217,12 +222,21 @@ for piece in pieces {
 }
 ```
 
-What the reader keeps between messages is the same 32 KiB window, so the next
-message may match against the last one — the setting a WebSocket connection calls
-context takeover. `reset` on either side throws it away, and the next message
-stands on its own. Both were checked against zlib: its flushed messages decode
-here, ours decode there, and a message that leans on a window that was dropped is
-refused rather than guessed at.
+What the reader keeps between messages is the same window the stream was written
+with — 256 bytes to 32 KiB, a power of two, the eight to fifteen bits a
+permessage-deflate negotiation names — so the next message may match against the
+last one: the setting a WebSocket connection calls context takeover. A reader
+given a window smaller than the stream's refuses the stream at the first
+back-reference that reaches past it, rather than guessing. `reset` on either side
+throws the window away, and the next message stands on its own. Both were checked
+against zlib: its flushed messages decode here, ours decode there, and a message
+that leans on a window that was dropped is refused rather than guessed at.
+
+The writer honours a budget of its own. `Writer::new(limit=...)` sets how much
+output the stream may produce; `push` emits blocks until the next one would cross
+the limit and then refuses with `TooBig`, so a caller that hands over a large body
+and a tight budget stops at the block that overflows instead of expanding the
+whole input first. The reader's `limit` is a separate, output-side bound.
 
 A chunk boundary may fall inside a header field, inside a Huffman code, inside a
 stored block, or between a member's data and its data descriptor. The tests feed
