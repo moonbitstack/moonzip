@@ -657,3 +657,37 @@ test "panic a window outside what DEFLATE allows is a mistake in the program" {
 test "panic a window that is not a power of two is a mistake in the program" {
   @deflate.deflate(b"hello"[:], window=3000) |> ignore
 }
+
+///|
+/// Compress a body through a streaming writer at one window, for the tests that
+/// compare what different windows cost.
+fn pack_with_window(
+  body : Bytes,
+  window : Int32,
+) -> Bytes raise @moonzip.Refused {
+  let writer = @deflate.Writer::new(level=9, window~)
+  let out : Array[Byte] = []
+  for b in writer.push(body[:]) {
+    out.push(b)
+  }
+  for b in writer.finish() {
+    out.push(b)
+  }
+  Bytes::from_array(out)
+}
+
+///|
+/// The encoder honours its window, not just the decoder. A body of two identical
+/// halves is one far back-reference when the window reaches across the halves and
+/// a run of literals when it does not, so the narrow stream is the larger one. A
+/// writer that ignored `window` and always reached 32 KiB would write the same
+/// bytes either way, and this catches that.
+test "a narrower encoder window writes a larger stream on a far repeat" {
+  let body = paired(1000)
+  let narrow = pack_with_window(body, 256)
+  let wide = pack_with_window(body, 32768)
+  assert_true(narrow.length() > wide.length())
+  // And both still decode to the same bytes, so the saving is real and not a bug.
+  assert_eq(@deflate.inflate(narrow[:]), body)
+  assert_eq(@deflate.inflate(wide[:]), body)
+}
