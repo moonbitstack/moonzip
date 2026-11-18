@@ -525,7 +525,7 @@ pub fn Reader::push(
           }
           Bytes::from_array(bytes)
         }
-        _ => Bytes::new(0)
+        _ => b""
       }
       if got.length() > 0 {
         for i in 0..<stamp {

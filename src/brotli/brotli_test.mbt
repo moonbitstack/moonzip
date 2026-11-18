@@ -110,7 +110,7 @@ test "truncated streams are refused" {
 ///|
 /// An empty stream is legal and produces nothing.
 test "empty input" {
-  let packed = @brotli.brotli(Bytes::new(0))
+  let packed = @brotli.brotli(b"")
   let back = @brotli.unbrotli(packed)
   if back.length() != 0 {
     fail("\{back.length()} bytes out of an empty stream")

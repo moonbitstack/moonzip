@@ -2064,7 +2064,7 @@ fn body_alphabet() -> Bytes {
 
 ///|
 fn body_empty() -> Bytes {
-  Bytes::new(0)
+  b""
 }
 
 ///|
